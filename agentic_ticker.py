@@ -62,7 +62,7 @@ def main():
                             f"keys: {', '.join(list(res.keys())[:6])}" if isinstance(res, dict) else 
                             type(res).__name__
                         )
-                        msg = f"Step {e.get('step')}: {e.get('name')} finished → {summary}"
+                        msg = f":yellow[Result: {e.get('name')} finished → {summary}]"
                         status.write(msg)
                     elif kind == "final":
                         status.update(label="Agent loop completed", state="complete")

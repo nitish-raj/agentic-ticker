@@ -60,7 +60,7 @@ class Orchestrator:
                 # Step 0.1: Web search fallback
                 web_search_performed = True
                 if on_event:
-                    on_event({"type": "call", "step": 6, "name": "web_search_ticker", "args": {"input_text": ticker_input}})
+                    on_event({"type": "call", "step": 1, "name": "web_search_ticker", "args": {"input_text": ticker_input}})
                 
                 try:
                     validated_ticker = validate_ticker_with_web_search(ticker_input)
@@ -68,17 +68,17 @@ class Orchestrator:
                     if validated_ticker:
                         steps.append({"type": "result", "name": "web_search_ticker", "result": validated_ticker})
                         if on_event:
-                            on_event({"type": "result", "step": 6, "name": "web_search_ticker", "result": validated_ticker})
+                            on_event({"type": "result", "step": 1, "name": "web_search_ticker", "result": validated_ticker})
                             if validated_ticker.upper() != ticker_input.upper():
                                 on_event({"type": "info", "message": f"Web search found ticker: {validated_ticker}"})
                     else:
                         error_msg = f"No valid ticker found for '{ticker_input}' after web search. Please check the company name or ticker symbol."
                         if on_event:
-                            on_event({"type": "error", "step": 6, "name": "web_search_ticker", "error": error_msg})
+                            on_event({"type": "error", "step": 1, "name": "web_search_ticker", "error": error_msg})
                         raise ValueError(error_msg)
                 except Exception as e:
                     if on_event:
-                        on_event({"type": "error", "step": 6, "name": "web_search_ticker", "error": str(e)})
+                        on_event({"type": "error", "step": 1, "name": "web_search_ticker", "error": str(e)})
                     raise
             
             if not validated_ticker:
@@ -94,82 +94,82 @@ class Orchestrator:
         
         # Step 1: Get company info
         if on_event:
-            on_event({"type": "call", "step": 6, "name": "get_company_info", "args": {"ticker": validated_ticker}})
+            on_event({"type": "call", "step": 1, "name": "get_company_info", "args": {"ticker": validated_ticker}})
         
         try:
             company_info = get_company_info(validated_ticker)
             steps.append({"type": "result", "name": "get_company_info", "result": company_info})
             if on_event:
-                on_event({"type": "result", "step": 6, "name": "get_company_info", "result": company_info})
+                on_event({"type": "result", "step": 1, "name": "get_company_info", "result": company_info})
         except Exception as e:
             if on_event:
-                on_event({"type": "error", "step": 6, "name": "get_company_info", "error": str(e)})
+                on_event({"type": "error", "step": 1, "name": "get_company_info", "error": str(e)})
             # Continue even if company info fails - not critical
             company_info = {"ticker": validated_ticker, "company_name": validated_ticker, "short_name": validated_ticker}
         
         # Step 2: Load prices
         if on_event:
-            on_event({"type": "call", "step": 6, "name": "load_prices", "args": {"ticker": validated_ticker, "days": days}})
+            on_event({"type": "call", "step": 2, "name": "load_prices", "args": {"ticker": validated_ticker, "days": days}})
         
         try:
             price_data = load_prices(validated_ticker, days)
             if not price_data:
                 error_msg = f"No price data found for ticker '{validated_ticker}'. The ticker may be delisted or invalid."
                 if on_event:
-                    on_event({"type": "error", "step": 6, "name": "load_prices", "error": error_msg})
+                    on_event({"type": "error", "step": 2, "name": "load_prices", "error": error_msg})
                 raise ValueError(error_msg)
             
             steps.append({"type": "result", "name": "load_prices", "result": price_data})
             if on_event:
-                on_event({"type": "result", "step": 6, "name": "load_prices", "result": price_data})
+                on_event({"type": "result", "step": 2, "name": "load_prices", "result": price_data})
         except Exception as e:
             if on_event:
-                on_event({"type": "error", "step": 6, "name": "load_prices", "error": str(e)})
+                on_event({"type": "error", "step": 2, "name": "load_prices", "error": str(e)})
             raise
         
         # Step 3: Compute indicators
         if on_event:
-            on_event({"type": "call", "step": 6, "name": "compute_indicators", "args": {"price_data": price_data}})
+            on_event({"type": "call", "step": 3, "name": "compute_indicators", "args": {"price_data": price_data}})
         
         try:
             indicator_data = compute_indicators(price_data)
             steps.append({"type": "result", "name": "compute_indicators", "result": indicator_data})
             if on_event:
-                on_event({"type": "result", "step": 6, "name": "compute_indicators", "result": indicator_data})
+                on_event({"type": "result", "step": 3, "name": "compute_indicators", "result": indicator_data})
         except Exception as e:
             if on_event:
-                on_event({"type": "error", "step": 6, "name": "compute_indicators", "error": str(e)})
+                on_event({"type": "error", "step": 3, "name": "compute_indicators", "error": str(e)})
             raise
         
-        # Step 3: Detect events
+        # Step 4: Detect events
         if on_event:
-            on_event({"type": "call", "step": 6, "name": "detect_events", "args": {"indicator_data": indicator_data, "threshold": threshold}})
+            on_event({"type": "call", "step": 4, "name": "detect_events", "args": {"indicator_data": indicator_data, "threshold": threshold}})
         
         try:
             events = detect_events(indicator_data, threshold)
             steps.append({"type": "result", "name": "detect_events", "result": events})
             if on_event:
-                on_event({"type": "result", "step": 6, "name": "detect_events", "result": events})
+                on_event({"type": "result", "step": 4, "name": "detect_events", "result": events})
         except Exception as e:
             if on_event:
-                on_event({"type": "error", "step": 6, "name": "detect_events", "error": str(e)})
+                on_event({"type": "error", "step": 4, "name": "detect_events", "error": str(e)})
             raise
         
-        # Step 4: Forecast prices
+        # Step 5: Forecast prices
         if on_event:
-            on_event({"type": "call", "step": 6, "name": "forecast_prices", "args": {"indicator_data": indicator_data, "days": forecast_days}})
+            on_event({"type": "call", "step": 5, "name": "forecast_prices", "args": {"indicator_data": indicator_data, "days": forecast_days}})
         
         try:
             forecasts = forecast_prices(indicator_data, forecast_days)
             steps.append({"type": "result", "name": "forecast_prices", "result": forecasts})
             if on_event:
-                on_event({"type": "result", "step": 6, "name": "forecast_prices", "result": forecasts})
+                on_event({"type": "result", "step": 5, "name": "forecast_prices", "result": forecasts})
         except Exception as e:
             if on_event:
-                on_event({"type": "error", "step": 6, "name": "forecast_prices", "error": str(e)})
+                on_event({"type": "error", "step": 5, "name": "forecast_prices", "error": str(e)})
             raise
         
-        # Step 5: Build report
+        # Step 6: Build report
         if on_event:
             on_event({"type": "call", "step": 6, "name": "build_report", "args": {"ticker": validated_ticker, "events": events, "forecasts": forecasts, "company_info": company_info}})
         

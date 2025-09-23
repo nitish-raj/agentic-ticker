@@ -1,7 +1,6 @@
 from typing import List, Dict, Any, Optional
 from .planner import GeminiPlanner
 from .services import (
-    validate_ticker,
     validate_ticker_gemini_only,
     validate_ticker_with_web_search,
     get_company_info,
@@ -13,12 +12,19 @@ from .services import (
 )
 from .json_helpers import _format_json_for_display
 
+try:
+    import streamlit as st
+except ImportError:
+    st = None
+
 
 class Orchestrator:
     def __init__(self):
         self.planner = GeminiPlanner()
         self.tools = {
-            "validate_ticker": validate_ticker,
+            "validate_ticker_gemini_only": validate_ticker_gemini_only,
+            "validate_ticker_with_web_search": validate_ticker_with_web_search,
+            "get_company_info": get_company_info,
             "load_prices": load_prices,
             "compute_indicators": compute_indicators,
             "detect_events": detect_events,
@@ -32,168 +38,142 @@ class Orchestrator:
             spec.append({"name": name, "docstring": fn.__doc__ or "", "signature": str(fn)})
         return spec
 
+    def _sanitize_error_message(self, error_msg: str) -> str:
+        """Sanitize error messages to remove sensitive information like API keys"""
+        # Remove API keys from error messages
+        import re
+        # Pattern to match API keys in URLs
+        api_key_pattern = r'key=[^&\s]+'
+        sanitized = re.sub(api_key_pattern, 'key=[REDACTED]', error_msg)
+        return sanitized
+
     def run(self, ticker_input: str, days: int, threshold: float, forecast_days: int, on_event: Optional[callable] = None) -> List[Dict[str, Any]]:
-        # Simple sequential execution - no complex orchestration
+        # Gemini-orchestrated execution
         steps: List[Dict[str, Any]] = []
+        context: Dict[str, Any] = {
+            "ticker_input": ticker_input,
+            "days": days,
+            "threshold": threshold,
+            "forecast_days": forecast_days
+        }
         
         if on_event:
-            on_event({"type": "info", "message": f"Starting stock analysis pipeline for '{ticker_input}'..."})
+            on_event({"type": "info", "message": f"Starting Gemini-orchestrated analysis for '{ticker_input}'..."})
         
-        # Step 0: Initial ticker validation with Gemini
-        if on_event:
-            on_event({"type": "call", "step": 0, "name": "validate_ticker_gemini", "args": {"input_text": ticker_input}})
+        step_count = 0
+        max_steps = 10  # Prevent infinite loops
         
-        validated_ticker = ""
-        web_search_performed = False
-        
-        try:
-            # Try Gemini validation first
-            validated_ticker = validate_ticker_gemini_only(ticker_input)
+        while step_count < max_steps:
+            step_count += 1
             
-            if validated_ticker:
-                steps.append({"type": "result", "name": "validate_ticker_gemini", "result": validated_ticker})
-                if on_event:
-                    on_event({"type": "result", "step": 0, "name": "validate_ticker_gemini", "result": validated_ticker})
-                    if validated_ticker.upper() != ticker_input.upper():
-                        on_event({"type": "info", "message": f"Converted '{ticker_input}' to ticker symbol: {validated_ticker}"})
-            else:
-                # Step 0.1: Web search fallback
-                web_search_performed = True
-                if on_event:
-                    on_event({"type": "call", "step": 1, "name": "web_search_ticker", "args": {"input_text": ticker_input}})
-                
-                try:
-                    validated_ticker = validate_ticker_with_web_search(ticker_input)
-                    
-                    if validated_ticker:
-                        steps.append({"type": "result", "name": "web_search_ticker", "result": validated_ticker})
-                        if on_event:
-                            on_event({"type": "result", "step": 1, "name": "web_search_ticker", "result": validated_ticker})
-                            if validated_ticker.upper() != ticker_input.upper():
-                                on_event({"type": "info", "message": f"Web search found ticker: {validated_ticker}"})
+            # Get tools specification and transcript for planning
+            tools_spec = self.tools_spec()
+            transcript = steps.copy()
+            
+            # Add context summary to transcript for Gemini to understand available data
+            # Don't pass large data structures directly, just reference them by key
+            for key, value in context.items():
+                if value and key not in ["ticker_input"]:  # Don't include original input in transcript
+                    if isinstance(value, list) and len(value) > 0:
+                        transcript.append({"type": "context", "key": key, "value": f"{type(value).__name__} with {len(value)} items"})
+                    elif isinstance(value, dict):
+                        transcript.append({"type": "context", "key": key, "value": f"dict with keys: {list(value.keys())[:3]}"})
                     else:
-                        error_msg = f"No valid ticker found for '{ticker_input}' after web search. Please check the company name or ticker symbol."
-                        if on_event:
-                            on_event({"type": "error", "step": 1, "name": "web_search_ticker", "error": error_msg})
-                        raise ValueError(error_msg)
-                except Exception as e:
-                    if on_event:
-                        on_event({"type": "error", "step": 1, "name": "web_search_ticker", "error": str(e)})
-                    raise
+                        transcript.append({"type": "context", "key": key, "value": str(value)[:50]})
             
-            if not validated_ticker:
-                error_msg = f"No valid ticker found for '{ticker_input}'. Please check the company name or ticker symbol."
-                if on_event:
-                    on_event({"type": "error", "step": 0 if not web_search_performed else 1, "name": "validate_ticker_gemini" if not web_search_performed else "web_search_ticker", "error": error_msg})
-                raise ValueError(error_msg)
+            if on_event:
+                on_event({"type": "planning", "step": step_count})
+            
+            try:
+                # Let Gemini decide the next action - pass all UI parameters
+                plan = self.planner.plan(tools_spec, ticker_input, transcript, days, threshold, forecast_days)
                 
-        except Exception as e:
-            if on_event:
-                on_event({"type": "error", "step": 0 if not web_search_performed else 1, "name": "validate_ticker_gemini" if not web_search_performed else "web_search_ticker", "error": str(e)})
-            raise
-        
-        # Step 1: Get company info
-        if on_event:
-            on_event({"type": "call", "step": 1, "name": "get_company_info", "args": {"ticker": validated_ticker}})
-        
-        try:
-            company_info = get_company_info(validated_ticker)
-            steps.append({"type": "result", "name": "get_company_info", "result": company_info})
-            if on_event:
-                on_event({"type": "result", "step": 1, "name": "get_company_info", "result": company_info})
-        except Exception as e:
-            if on_event:
-                on_event({"type": "error", "step": 1, "name": "get_company_info", "error": str(e)})
-            # Continue even if company info fails - not critical
-            company_info = {"ticker": validated_ticker, "company_name": validated_ticker, "short_name": validated_ticker}
-        
-        # Step 2: Load prices
-        if on_event:
-            on_event({"type": "call", "step": 2, "name": "load_prices", "args": {"ticker": validated_ticker, "days": days}})
-        
-        try:
-            price_data = load_prices(validated_ticker, days)
-            if not price_data:
-                error_msg = f"No price data found for ticker '{validated_ticker}'. The ticker may be delisted or invalid."
+                if plan.final:
+                    if on_event:
+                        on_event({"type": "final", "data": plan.final})
+                    break
+                
+                if plan.call and plan.call.name:
+                    func_name = plan.call.name
+                    func_args = plan.call.args or {}
+                    
+                    if on_event:
+                        on_event({"type": "call", "step": step_count, "name": func_name, "args": func_args})
+                    
+                    if func_name in self.tools:
+                        try:
+                            # Process arguments - replace context references with actual data
+                            processed_args = {}
+                            for arg_name, arg_value in func_args.items():
+                                if isinstance(arg_value, str) and arg_value in context:
+                                    # If argument is a context key, use the actual data
+                                    processed_args[arg_name] = context[arg_value]
+                                elif isinstance(arg_value, str):
+                                    # Try to convert string numbers to proper types
+                                    try:
+                                        if '.' in arg_value:
+                                            processed_args[arg_name] = float(arg_value)
+                                        else:
+                                            processed_args[arg_name] = int(arg_value)
+                                    except ValueError:
+                                        processed_args[arg_name] = arg_value
+                                else:
+                                    processed_args[arg_name] = arg_value
+                            
+                            # Execute the function with processed arguments
+                            result = self.tools[func_name](**processed_args)
+                            
+                            # Store result in context for future steps
+                            context[func_name] = result
+                            
+                            steps.append({"type": "result", "name": func_name, "result": result})
+                            if on_event:
+                                on_event({"type": "result", "step": step_count, "name": func_name, "result": result})
+                            
+                            # Special handling for ticker validation
+                            if func_name == "validate_ticker_gemini_only" and result:
+                                context["validated_ticker"] = result
+                                if result.upper() != ticker_input.upper() and on_event:
+                                    on_event({"type": "info", "message": f"Converted '{ticker_input}' to ticker symbol: {result}"})
+                            elif func_name == "validate_ticker_with_web_search" and result:
+                                context["validated_ticker"] = result
+                                if on_event:
+                                    on_event({"type": "info", "message": f"Web search found ticker: {result}"})
+                            
+                        except Exception as e:
+                            error_msg = f"Error executing {func_name}: {str(e)}"
+                            if on_event:
+                                on_event({"type": "error", "step": step_count, "name": func_name, "error": error_msg})
+                            raise
+                    else:
+                        error_msg = f"Unknown function: {func_name}"
+                        if on_event:
+                            on_event({"type": "error", "step": step_count, "name": func_name, "error": error_msg})
+                        raise ValueError(error_msg)
+                        
+            except Exception as e:
+                error_msg = self._sanitize_error_message(str(e))
                 if on_event:
-                    on_event({"type": "error", "step": 2, "name": "load_prices", "error": error_msg})
-                raise ValueError(error_msg)
-            
-            steps.append({"type": "result", "name": "load_prices", "result": price_data})
-            if on_event:
-                on_event({"type": "result", "step": 2, "name": "load_prices", "result": price_data})
-        except Exception as e:
-            if on_event:
-                on_event({"type": "error", "step": 2, "name": "load_prices", "error": str(e)})
-            raise
-        
-        # Step 3: Compute indicators
-        if on_event:
-            on_event({"type": "call", "step": 3, "name": "compute_indicators", "args": {"price_data": price_data}})
-        
-        try:
-            indicator_data = compute_indicators(price_data)
-            steps.append({"type": "result", "name": "compute_indicators", "result": indicator_data})
-            if on_event:
-                on_event({"type": "result", "step": 3, "name": "compute_indicators", "result": indicator_data})
-        except Exception as e:
-            if on_event:
-                on_event({"type": "error", "step": 3, "name": "compute_indicators", "error": str(e)})
-            raise
-        
-        # Step 4: Detect events
-        if on_event:
-            on_event({"type": "call", "step": 4, "name": "detect_events", "args": {"indicator_data": indicator_data, "threshold": threshold}})
-        
-        try:
-            events = detect_events(indicator_data, threshold)
-            steps.append({"type": "result", "name": "detect_events", "result": events})
-            if on_event:
-                on_event({"type": "result", "step": 4, "name": "detect_events", "result": events})
-        except Exception as e:
-            if on_event:
-                on_event({"type": "error", "step": 4, "name": "detect_events", "error": str(e)})
-            raise
-        
-        # Step 5: Forecast prices
-        if on_event:
-            on_event({"type": "call", "step": 5, "name": "forecast_prices", "args": {"indicator_data": indicator_data, "days": forecast_days}})
-        
-        try:
-            forecasts = forecast_prices(indicator_data, forecast_days)
-            steps.append({"type": "result", "name": "forecast_prices", "result": forecasts})
-            if on_event:
-                on_event({"type": "result", "step": 5, "name": "forecast_prices", "result": forecasts})
-        except Exception as e:
-            if on_event:
-                on_event({"type": "error", "step": 5, "name": "forecast_prices", "error": str(e)})
-            raise
-        
-        # Step 6: Build report
-        if on_event:
-            on_event({"type": "call", "step": 6, "name": "build_report", "args": {"ticker": validated_ticker, "events": events, "forecasts": forecasts, "company_info": company_info}})
-        
-        try:
-            report = build_report(validated_ticker, events, forecasts, company_info)
-            steps.append({"type": "result", "name": "build_report", "result": report})
-            if on_event:
-                on_event({"type": "result", "step": 6, "name": "build_report", "result": report})
-                on_event({"type": "final", "data": report})
-        except Exception as e:
-            if on_event:
-                on_event({"type": "error", "step": 6, "name": "build_report", "error": str(e)})
-            raise
+                    on_event({"type": "error", "step": step_count, "name": "planning", "error": error_msg})
+                raise
         
         # Store results in session state for UI
-        if 'st' in globals() or 'st' in locals():
+        if st is not None:
             try:
-                st.session_state.price_data = price_data
-                st.session_state.indicator_data = indicator_data
-                st.session_state.events = events
-                st.session_state.forecasts = forecasts
-                st.session_state.report = report
+                if context.get("load_prices"):
+                    st.session_state.price_data = context["load_prices"]
+                if context.get("compute_indicators"):
+                    st.session_state.indicator_data = context["compute_indicators"]
+                if context.get("detect_events"):
+                    st.session_state.events = context["detect_events"]
+                if context.get("forecast_prices"):
+                    st.session_state.forecasts = context["forecast_prices"]
+                if context.get("build_report"):
+                    st.session_state.report = context["build_report"]
+                if context.get("get_company_info"):
+                    st.session_state.company_info = context["get_company_info"]
             except:
-                pass  # Streamlit not available in this context
+                pass  # Session state not available
         
         return steps
 

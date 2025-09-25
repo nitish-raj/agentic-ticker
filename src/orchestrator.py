@@ -1,16 +1,18 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 from .planner import GeminiPlanner
 from .services import (
-    validate_ticker_gemini_only,
-    validate_ticker_with_web_search,
+    validate_ticker,
     get_company_info,
+    get_crypto_info,
     load_prices,
+    load_crypto_prices,
     compute_indicators,
     detect_events,
     forecast_prices,
-    build_report
+    build_report,
+ddgs_search
 )
-from .json_helpers import _format_json_for_display
+
 
 try:
     import streamlit as st
@@ -22,14 +24,16 @@ class Orchestrator:
     def __init__(self):
         self.planner = GeminiPlanner()
         self.tools = {
-            "validate_ticker_gemini_only": validate_ticker_gemini_only,
-            "validate_ticker_with_web_search": validate_ticker_with_web_search,
+            "validate_ticker": validate_ticker,
             "get_company_info": get_company_info,
+            "get_crypto_info": get_crypto_info,
             "load_prices": load_prices,
+            "load_crypto_prices": load_crypto_prices,
             "compute_indicators": compute_indicators,
             "detect_events": detect_events,
             "forecast_prices": forecast_prices,
             "build_report": build_report,
+            "ddgs_search": ddgs_search,
         }
 
     def tools_spec(self) -> List[Dict[str, Any]]:
@@ -47,18 +51,21 @@ class Orchestrator:
         sanitized = re.sub(api_key_pattern, 'key=[REDACTED]', error_msg)
         return sanitized
 
-    def run(self, ticker_input: str, days: int, threshold: float, forecast_days: int, on_event: Optional[callable] = None) -> List[Dict[str, Any]]:
+    def run(self, ticker_input: str, days: int, threshold: float, forecast_days: int, on_event: Optional[Callable] = None) -> List[Dict[str, Any]]:
         # Gemini-orchestrated execution
         steps: List[Dict[str, Any]] = []
+        
         context: Dict[str, Any] = {
             "ticker_input": ticker_input,
             "days": days,
             "threshold": threshold,
-            "forecast_days": forecast_days
+            "forecast_days": forecast_days,
+            "asset_type": "ambiguous"  # Let Gemini determine this
         }
         
         if on_event:
-            on_event({"type": "info", "message": f"Starting Gemini-orchestrated analysis for '{ticker_input}'..."})
+            on_event({"type": "info", "message": f"🤖 Starting agentic analysis for '{ticker_input}'..."})
+            on_event({"type": "info", "message": f"📝 Initial analysis: User wants to analyze '{ticker_input}'. Let me understand what this asset is and gather comprehensive information."})
         
         step_count = 0
         max_steps = 10  # Prevent infinite loops
@@ -83,10 +90,13 @@ class Orchestrator:
             
             if on_event:
                 on_event({"type": "planning", "step": step_count})
+                # Add strategic thinking before each step
+                if step_count == 1:
+                    on_event({"type": "info", "message": f"🧠 Strategic thinking: I need to first classify what type of asset '{ticker_input}' is, then gather the appropriate data for analysis."})
             
             try:
-                # Let Gemini decide the next action - pass all UI parameters
-                plan = self.planner.plan(tools_spec, ticker_input, transcript, days, threshold, forecast_days)
+                # Let Gemini decide the next action - pass all UI parameters including asset type
+                plan = self.planner.plan(tools_spec, ticker_input, transcript, days, threshold, forecast_days, context["asset_type"])
                 
                 if plan.final:
                     if on_event:
@@ -120,25 +130,46 @@ class Orchestrator:
                                 else:
                                     processed_args[arg_name] = arg_value
                             
+                            
+                            
                             # Execute the function with processed arguments
                             result = self.tools[func_name](**processed_args)
                             
                             # Store result in context for future steps
                             context[func_name] = result
                             
+                            # Add post-function call thinking to show what was learned
+                            if func_name == "ddgs_search" and result and on_event:
+                                on_event({"type": "info", "message": f"✅ Web search completed: Found {len(result) if isinstance(result, list) else 1} relevant results. This will help me better understand the asset."})
+                            elif func_name == "get_company_info" and result and on_event:
+                                company_name = result.get('company_name', 'Unknown') if isinstance(result, dict) else 'Unknown'
+                                on_event({"type": "info", "message": f"✅ Company info retrieved: Successfully gathered details for {company_name}."})
+                            elif func_name == "get_crypto_info" and result and on_event:
+                                crypto_name = result.get('name', 'Unknown') if isinstance(result, dict) else 'Unknown'
+                                on_event({"type": "info", "message": f"✅ Crypto info retrieved: Successfully gathered details for {crypto_name}."})
+                            elif func_name == "load_prices" and result and on_event:
+                                days_count = len(result) if isinstance(result, list) else 0
+                                on_event({"type": "info", "message": f"✅ Price data loaded: Successfully retrieved {days_count} days of historical price data."})
+                            elif func_name == "compute_indicators" and result and on_event:
+                                on_event({"type": "info", "message": f"✅ Technical indicators computed: RSI, MACD, and Bollinger Bands calculated successfully."})
+                            elif func_name == "detect_events" and result and on_event:
+                                events_count = len(result) if isinstance(result, list) else 0
+                                on_event({"type": "info", "message": f"✅ Events detected: Found {events_count} significant price events based on the threshold."})
+                            elif func_name == "forecast_prices" and result and on_event:
+                                forecast_count = len(result) if isinstance(result, list) else 0
+                                on_event({"type": "info", "message": f"✅ Forecasts generated: Created {forecast_count} days of price predictions using ML models."})
+                            elif func_name == "build_report" and result and on_event:
+                                on_event({"type": "info", "message": f"✅ Report built: Comprehensive analysis report completed with all findings."})
+                            
                             steps.append({"type": "result", "name": func_name, "result": result})
                             if on_event:
                                 on_event({"type": "result", "step": step_count, "name": func_name, "result": result})
                             
                             # Special handling for ticker validation
-                            if func_name == "validate_ticker_gemini_only" and result:
+                            if func_name == "validate_ticker" and result:
                                 context["validated_ticker"] = result
-                                if result.upper() != ticker_input.upper() and on_event:
+                                if isinstance(result, str) and result.upper() != ticker_input.upper() and on_event:
                                     on_event({"type": "info", "message": f"Converted '{ticker_input}' to ticker symbol: {result}"})
-                            elif func_name == "validate_ticker_with_web_search" and result:
-                                context["validated_ticker"] = result
-                                if on_event:
-                                    on_event({"type": "info", "message": f"Web search found ticker: {result}"})
                             
                         except Exception as e:
                             error_msg = f"Error executing {func_name}: {str(e)}"
@@ -160,8 +191,12 @@ class Orchestrator:
         # Store results in session state for UI
         if st is not None:
             try:
+                # Handle both stock and crypto price data
                 if context.get("load_prices"):
                     st.session_state.price_data = context["load_prices"]
+                elif context.get("load_crypto_prices"):
+                    st.session_state.price_data = context["load_crypto_prices"]
+                    
                 if context.get("compute_indicators"):
                     st.session_state.indicator_data = context["compute_indicators"]
                 if context.get("detect_events"):
@@ -170,8 +205,13 @@ class Orchestrator:
                     st.session_state.forecasts = context["forecast_prices"]
                 if context.get("build_report"):
                     st.session_state.report = context["build_report"]
+                    
+                # Handle both company and crypto info
                 if context.get("get_company_info"):
                     st.session_state.company_info = context["get_company_info"]
+                elif context.get("get_crypto_info"):
+                    st.session_state.crypto_info = context["get_crypto_info"]
+                    
             except:
                 pass  # Session state not available
         

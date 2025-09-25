@@ -5,58 +5,245 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import json
+import time
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 
+try:
+    from coingecko_sdk import Coingecko
+    CoinGeckoAPI = Coingecko
+except ImportError:
+    CoinGeckoAPI = None
 
-def searxng_bridge_search(query, max_results=3, **kwargs):
-    """Search using local SearxNG instance at http://localhost:8080"""
+
+def ddgs_search(query, max_results=3, **kwargs):
+    """Search using DDGS (DuckDuckGo Search) library"""
     try:
-        import urllib.parse
-        encoded_query = urllib.parse.quote(query)
-        url = f"http://localhost:8080/search?q={encoded_query}&format=json"
+        from ddgs import DDGS
         
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        # Initialize DDGS with default settings
+        ddgs = DDGS()
         
-        # Extract and return the search results
-        results = data.get('results', [])
-        print(f"✓ Web search returned {len(results)} results for query: {query}")
-        return results[:max_results]
+        # Perform text search
+        results = ddgs.text(query, region='us-en', safesearch='moderate', max_results=max_results)
+        
+        # Convert DDGS results to expected format
+        formatted_results = []
+        for result in results:
+            formatted_result = {
+                'title': result.get('title', ''),
+                'href': result.get('href', ''),
+                'content': result.get('body', '')
+            }
+            formatted_results.append(formatted_result)
+        
+        print(f"✓ Web search returned {len(formatted_results)} results for query: {query}")
+        return formatted_results[:max_results]
         
     except Exception as e:
         print(f"Web search failed: {e}")
         return []
 
 
-def validate_ticker(input_text: str) -> str:
+def validate_crypto_ticker(input_text: str) -> str:
     """
-    Validates and converts stock name or ticker to proper ticker symbol using Gemini.
+    Validates and converts crypto name or ticker to proper ticker symbol using Gemini and CoinGecko.
     Args:
-        input_text: User input (can be ticker symbol like 'AAPL' or company name like 'Apple')
+        input_text: User input (can be ticker symbol like 'BTC' or crypto name like 'Bitcoin')
     Returns:
-        Valid ticker symbol (e.g., 'AAPL')
+        Valid crypto ticker symbol (e.g., 'BTC-USD' for Yahoo Finance format)
     """
     try:
         # Handle empty input
         if not input_text or not input_text.strip():
             return ""
+        
+        # Clean and normalize input
+        cleaned_input = input_text.strip().upper()
+        
+        # Check if it's already a common crypto ticker format
+        # Use Gemini to resolve the crypto ticker dynamically
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            # Fallback: return with -USD suffix for dynamic resolution
+            return f"{cleaned_input}-USD"
             
-        # Check if it's already a valid ticker format (1-5 characters, letters only)
-        if re.match(r'^[A-Z]{1,5}$', input_text.upper()):
-            # Quick validation - try to fetch data
-            test_ticker = yf.Ticker(input_text.upper())
+        model = os.getenv("GEMINI_MODEL")
+        api_base = os.getenv("GEMINI_API_BASE")
+        
+        prompt = f"""
+        The user entered: "{input_text}"
+        
+        If this is already a valid cryptocurrency ticker symbol (like BTC, ETH, XRP, ADA), return it in uppercase.
+        If this is a cryptocurrency name (like Bitcoin, Ethereum, Ripple, Cardano), return the correct ticker symbol.
+        
+        For cryptocurrency tickers, use the standard symbol (BTC, ETH, XRP, etc.) without any currency suffix.
+        
+        Return ONLY the ticker symbol in uppercase, nothing else. No explanations, no formatting.
+        
+        Examples:
+        - "BTC" -> "BTC"
+        - "Bitcoin" -> "BTC"
+        - "ETH" -> "ETH" 
+        - "Ethereum" -> "ETH"
+        - "XRP" -> "XRP"
+        - "Ripple" -> "XRP"
+        - "ADA" -> "ADA"
+        - "Cardano" -> "ADA"
+        - "DOGE" -> "DOGE"
+        - "Dogecoin" -> "DOGE"
+        """
+        
+        url = f"{api_base}/models/{model}:generateContent?key={api_key}"
+        body = {
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.1,
+                "responseMimeType": "text/plain"
+            }
+        }
+        
+        r = requests.post(url, json=body, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        
+        # Extract the ticker from Gemini response
+        ticker = data["candidates"][0]["content"]["parts"][0]["text"].strip().upper()
+        
+        # Clean up ticker (remove spaces, special characters except alphanumeric)
+        ticker = re.sub(r'[^A-Z0-9]', '', ticker)
+        
+        # Validate the returned ticker with Yahoo Finance format
+        yf_ticker = f"{ticker}-USD"
+        
+        try:
+            test_ticker = yf.Ticker(yf_ticker)
             test_data = test_ticker.history(period="1d")
             if not test_data.empty:
-                return input_text.upper()
+                return yf_ticker
+        except Exception as e:
+            print(f"Yahoo Finance validation failed for {yf_ticker}: {e}")
+        
+        # If Yahoo Finance fails, try CoinGecko validation
+        try:
+            if CoinGeckoAPI:
+                # Get API key from environment
+                demo_api_key = os.getenv("COINGECKO_DEMO_API_KEY")
+                if demo_api_key:
+                    cg = CoinGeckoAPI(demo_api_key=demo_api_key)
+                else:
+                    # Try pro API key if available
+                    api_key = os.getenv("COINGECKO_API_KEY")
+                    if api_key:
+                        cg = CoinGeckoAPI(pro_api_key=api_key)
+                    else:
+                        cg = CoinGeckoAPI()
+                
+                # Try to get coin data
+                coin_data = cg.coins.get_id(id=ticker.lower())
+                if coin_data:
+                    # CoinGecko found it, so it's valid
+                    return yf_ticker
+        except Exception as e:
+            print(f"CoinGecko validation failed for {ticker}: {e}")
+        
+        # If Gemini fails or returns invalid ticker, try web search as fallback
+        try:
+            print(f"Attempting web search for crypto: {input_text}")
+            search_results = ddgs_search(
+                query=f"{input_text} cryptocurrency ticker symbol",
+                max_results=5
+            )
+            
+            if search_results and len(search_results) > 0:
+                # Extract ticker from search results
+                search_text = " ".join([result.get('title', '') + ' ' + result.get('content', '') for result in search_results])
+                
+                # Use Gemini to parse the search results and extract the ticker
+                parse_prompt = f"""
+                Based on these search results about "{input_text}", extract the correct cryptocurrency ticker symbol.
+                
+                Search results:
+                {search_text}
+                
+                Return ONLY the ticker symbol in uppercase, nothing else. No explanations.
+                Examples: "BTC", "ETH", "XRP", "ADA"
+                """
+                
+                parse_body = {
+                    "contents": [{"role": "user", "parts": [{"text": parse_prompt}]}],
+                    "generationConfig": {
+                        "temperature": 0.1,
+                        "responseMimeType": "text/plain"
+                    }
+                }
+                
+                parse_r = requests.post(url, json=parse_body, timeout=30)
+                parse_r.raise_for_status()
+                parse_data = parse_r.json()
+                
+                parsed_ticker = parse_data["candidates"][0]["content"]["parts"][0]["text"].strip().upper()
+                parsed_ticker = re.sub(r'[^A-Z0-9]', '', parsed_ticker)
+                
+                # Validate the parsed ticker
+                yf_parsed_ticker = f"{parsed_ticker}-USD"
+                try:
+                    test_ticker = yf.Ticker(yf_parsed_ticker)
+                    test_data = test_ticker.history(period="1d")
+                    if not test_data.empty:
+                        print(f"✓ Web search + Gemini parsing successful: {yf_parsed_ticker}")
+                        return yf_parsed_ticker
+                except Exception as e:
+                    print(f"Parsed crypto ticker validation failed for {yf_parsed_ticker}: {e}")
+            else:
+                print("⚠ No search results found for crypto")
+                        
+        except Exception as e:
+            print(f"Crypto web search fallback failed: {e}")
+        
+        # If all else fails, return empty string
+        return ""
+        
+    except Exception as e:
+        print(f"Crypto validation failed: {e}")
+        return ""
+
+
+def validate_ticker(input_text: str) -> str:
+    """
+    Validates and converts stock or crypto name/ticker to proper ticker symbol.
+    Args:
+        input_text: User input (can be ticker symbol like 'AAPL'/'BTC' or name like 'Apple'/'Bitcoin')
+    Returns:
+        Valid ticker symbol (e.g., 'AAPL' for stocks, 'BTC-USD' for crypto)
+    """
+    try:
+        # Handle empty input
+        if not input_text or not input_text.strip():
+            return ""
+        
+        # Classify the asset type first
+        asset_type = classify_asset_type(input_text)
+        
+        # Route to appropriate validation function based on asset type
+        if asset_type == "crypto":
+            return validate_crypto_ticker(input_text)
+        else:
+            # Handle stock validation (existing logic)
+            # Check if it's already a valid ticker format (1-5 characters, letters only)
+            if re.match(r'^[A-Z]{1,5}$', input_text.upper()):
+                # Quick validation - try to fetch data
+                test_ticker = yf.Ticker(input_text.upper())
+                test_data = test_ticker.history(period="1d")
+                if not test_data.empty:
+                    return input_text.upper()
         
         # Use Gemini to resolve the ticker
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
-            # Fallback: return uppercase version if no API key
-            return input_text.upper()
+            # No fallback - require Gemini API for dynamic validation
+            return ""
             
         model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
         api_base = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
@@ -114,7 +301,7 @@ def validate_ticker(input_text: str) -> str:
         # If Gemini fails or returns invalid ticker, try web search as fallback
         try:
             print(f"Attempting web search for: {input_text}")
-            search_results = searxng_bridge_search(
+            search_results = ddgs_search(
                 query=f"{input_text} stock ticker symbol",
                 max_results=5
             )
@@ -154,15 +341,11 @@ def validate_ticker(input_text: str) -> str:
                     try:
                         test_ticker = yf.Ticker(parsed_ticker)
                         test_data = test_ticker.history(period="1d")
-                        if not test_data.empty or parsed_ticker in ["BRK-A", "BRK-B", "GOOGL", "META", "AAPL", "MSFT", "AMZN", "TSLA"]:
+                        if not test_data.empty:
                             print(f"✓ Web search + Gemini parsing successful: {parsed_ticker}")
                             return parsed_ticker
                     except Exception as e:
                         print(f"Parsed ticker validation failed for {parsed_ticker}: {e}")
-                        # For well-known tickers, return them anyway
-                        if parsed_ticker in ["BRK-A", "BRK-B", "GOOGL", "META", "AAPL", "MSFT", "AMZN", "TSLA"]:
-                            print(f"✓ Returning well-known ticker despite validation error: {parsed_ticker}")
-                            return parsed_ticker
             else:
                 print("⚠ No search results found")
                 return ""  # Return empty string if no ticker found
@@ -177,124 +360,9 @@ def validate_ticker(input_text: str) -> str:
         print(f"Validation failed: {e}")
         return ""
 
-def validate_ticker_gemini_only(input_text: str) -> str:
-    """Validate ticker using only Gemini API (no web search fallback)"""
-    try:
-        # Clean up input
-        cleaned_input = re.sub(r'[^\w\s\-\.]', '', input_text.strip())
-        
-        # Use Gemini to extract and validate ticker
-        prompt = f"""
-        Extract the stock ticker symbol from this input: "{cleaned_input}"
-        
-        Return ONLY the ticker symbol in uppercase, nothing else. No explanations.
-        Examples: "AAPL", "MSFT", "BRK-A", "GOOGL"
-        """
-        
-        body = {
-            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.1,
-                "responseMimeType": "text/plain"
-            }
-        }
-        
-        api_key = os.getenv("GEMINI_API_KEY")
-        model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-        r = requests.post(url, json=body, timeout=30)
-        r.raise_for_status()
-        data = r.json()
-        
-        # Extract the ticker from Gemini response
-        ticker = data["candidates"][0]["content"]["parts"][0]["text"].strip().upper()
-        
-        # Clean up common ticker formats (remove spaces, but keep hyphens for tickers like BRK-A)
-        ticker = re.sub(r'[^A-Z0-9-]', '', ticker)
-        
-        # Validate the returned ticker - handle both regular tickers and ones with hyphens
-        if re.match(r'^[A-Z0-9]{1,5}(-[A-Z0-9]{1,2})?$', ticker):
-            # Test the ticker by fetching data
-            try:
-                test_ticker = yf.Ticker(ticker)
-                test_data = test_ticker.history(period="1d")
-                if not test_data.empty:
-                    return ticker
-            except Exception as e:
-                print(f"Ticker validation failed for {ticker}: {e}")
-        
-        # Return empty string if Gemini validation fails
-        return ""
-        
-    except Exception as e:
-        print(f"Gemini validation failed: {e}")
-        return ""
 
-def validate_ticker_with_web_search(input_text: str) -> str:
-    """Validate ticker using web search + Gemini parsing"""
-    try:
-        print(f"Attempting web search for: {input_text}")
-        search_results = searxng_bridge_search(
-            query=f"{input_text} stock ticker symbol",
-            max_results=5
-        )
-        
-        if search_results and len(search_results) > 0:
-            # Extract ticker from search results
-            search_text = " ".join([result.get('title', '') + ' ' + result.get('content', '') for result in search_results])
-            
-            # Use Gemini to parse the search results and extract the ticker
-            parse_prompt = f"""
-            Based on these search results about "{input_text}", extract the correct stock ticker symbol.
-            
-            Search results:
-            {search_text}
-            
-            Return ONLY the ticker symbol in uppercase, nothing else. No explanations.
-            Examples: "AAPL", "MSFT", "BRK-A", "GOOGL"
-            """
-            
-            parse_body = {
-                "contents": [{"role": "user", "parts": [{"text": parse_prompt}]}],
-                "generationConfig": {
-                    "temperature": 0.1,
-                    "responseMimeType": "text/plain"
-                }
-            }
-            
-            api_key = os.getenv("GEMINI_API_KEY")
-            model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-            parse_r = requests.post(url, json=parse_body, timeout=30)
-            parse_r.raise_for_status()
-            parse_data = parse_r.json()
-            
-            parsed_ticker = parse_data["candidates"][0]["content"]["parts"][0]["text"].strip().upper()
-            parsed_ticker = re.sub(r'[^A-Z0-9-]', '', parsed_ticker)
-            
-            # Validate the parsed ticker
-            if re.match(r'^[A-Z0-9]{1,5}(-[A-Z0-9]{1,2})?$', parsed_ticker):
-                try:
-                    test_ticker = yf.Ticker(parsed_ticker)
-                    test_data = test_ticker.history(period="1d")
-                    if not test_data.empty or parsed_ticker in ["BRK-A", "BRK-B", "GOOGL", "META", "AAPL", "MSFT", "AMZN", "TSLA"]:
-                        print(f"✓ Web search + Gemini parsing successful: {parsed_ticker}")
-                        return parsed_ticker
-                except Exception as e:
-                    print(f"Parsed ticker validation failed for {parsed_ticker}: {e}")
-                    # For well-known tickers, return them anyway
-                    if parsed_ticker in ["BRK-A", "BRK-B", "GOOGL", "META", "AAPL", "MSFT", "AMZN", "TSLA"]:
-                        print(f"✓ Returning well-known ticker despite validation error: {parsed_ticker}")
-                        return parsed_ticker
-        else:
-            print("⚠ No search results found")
-            return ""  # Return empty string if no ticker found
-                    
-    except Exception as e:
-        print(f"Web search fallback failed: {e}")
-    
-    # If all else fails, return empty string to indicate no ticker found
-    return ""
+
+
 
 
 def load_prices(ticker: str, days: int = 30) -> List[Dict[str, Any]]:
@@ -317,7 +385,7 @@ def load_prices(ticker: str, days: int = 30) -> List[Dict[str, Any]]:
     for date, row in hist.iterrows():
         out.append({
             "ticker": ticker,
-            "date": date.to_pydatetime(),
+            "date": date,
             "open": float(row["Open"]),
             "high": float(row["High"]),
             "low": float(row["Low"]),
@@ -325,6 +393,41 @@ def load_prices(ticker: str, days: int = 30) -> List[Dict[str, Any]]:
             "volume": int(row["Volume"])
         })
     return out
+
+
+def load_crypto_prices(ticker: str, days: int = 30) -> List[Dict[str, Any]]:
+    """
+    Fetches historical OHLC data for a cryptocurrency ticker over N days.
+    Args:
+        ticker: Crypto ticker symbol (e.g., 'BTC-USD')
+        days: Number of days of historical data to fetch
+    Returns:
+        List of dicts: {ticker,date,open,high,low,close,volume}
+    Next:
+        Pass this list as price_data to compute_indicators.
+    """
+    try:
+        # Use Yahoo Finance for crypto data (same as stocks)
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+        hist = yf.Ticker(ticker).history(start=start_date, end=end_date)
+        if hist.empty:
+            return []
+        out = []
+        for date, row in hist.iterrows():
+            out.append({
+                "ticker": ticker,
+                "date": date,
+                "open": float(row["Open"]),
+                "high": float(row["High"]),
+                "low": float(row["Low"]),
+                "close": float(row["Close"]),
+                "volume": int(row["Volume"])
+            })
+        return out
+    except Exception as e:
+        print(f"Error loading crypto prices for {ticker}: {e}")
+        return []
 
 
 def compute_indicators(price_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -359,7 +462,7 @@ def compute_indicators(price_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     out = []
     for _, r in df.iterrows():
         out.append({
-            "date": pd.to_datetime(r['date']).to_pydatetime(),
+            "date": r['date'],
             "ma5": float(r['ma5']),
             "ma10": float(r['ma10']),
             "daily_return": float(r['daily_return']),
@@ -419,6 +522,15 @@ def forecast_prices(indicator_data: List[Dict[str, Any]], days: int = 5) -> List
     forecasts = []
     base_date = latest.get('date', datetime.now())
     
+    # Ensure base_date is a datetime object
+    if isinstance(base_date, str):
+        try:
+            base_date = datetime.strptime(base_date, '%Y-%m-%d')
+        except ValueError:
+            base_date = datetime.now()
+    elif not isinstance(base_date, datetime):
+        base_date = datetime.now()
+    
     for i in range(1, days + 1):
         # Simple forecast: base price * (1 + expected return)
         # Expected return is based on recent trend, with some randomness based on volatility
@@ -437,6 +549,81 @@ def forecast_prices(indicator_data: List[Dict[str, Any]], days: int = 5) -> List
         })
     
     return forecasts
+
+
+def classify_asset_type(input_text: str) -> str:
+    """
+    Classify asset type using Gemini API to determine if input refers to a stock, cryptocurrency, or is ambiguous.
+    Args:
+        input_text: User input text to classify
+    Returns:
+        'stock', 'crypto', or 'ambiguous'
+    """
+    try:
+        # Handle empty input
+        if not input_text or not input_text.strip():
+            return "ambiguous"
+            
+        # Use Gemini to classify the asset type
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            # No fallback - require Gemini API for dynamic classification
+            return "ambiguous"
+            
+        model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+        api_base = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
+        
+        prompt = f"""
+        Analyze the following input and determine if it refers to a stock, cryptocurrency, or is ambiguous:
+        
+        Input: "{input_text}"
+        
+        Classification rules:
+        - Return "stock" if the input clearly refers to a traditional stock, company, or stock ticker symbol (e.g., "AAPL", "Apple", "Microsoft", "GOOGL")
+        - Return "crypto" if the input clearly refers to a cryptocurrency, crypto token, or crypto exchange (e.g., "Bitcoin", "BTC", "Ethereum", "ETH", "Dogecoin")
+        - Return "ambiguous" if the input could refer to both, is unclear, or doesn't clearly match either category
+        
+        Return ONLY one word: "stock", "crypto", or "ambiguous". No explanations, no formatting.
+        
+        Examples:
+        - "AAPL" -> "stock"
+        - "Apple" -> "stock"
+        - "Bitcoin" -> "crypto"
+        - "BTC" -> "crypto"
+        - "Tesla" -> "stock"
+        - "Ethereum" -> "crypto"
+        - "TSLA" -> "stock"
+        - "ETH" -> "crypto"
+        - "Something random" -> "ambiguous"
+        - "XYZ" -> "ambiguous"
+        """
+        
+        url = f"{api_base}/models/{model}:generateContent?key={api_key}"
+        body = {
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.1,
+                "responseMimeType": "text/plain"
+            }
+        }
+        
+        r = requests.post(url, json=body, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        
+        # Extract the classification from Gemini response
+        classification = data["candidates"][0]["content"]["parts"][0]["text"].strip().lower()
+        
+        # Validate the response
+        if classification in ["stock", "crypto", "ambiguous"]:
+            return classification
+        else:
+            # If Gemini returns something unexpected, default to ambiguous
+            return "ambiguous"
+            
+    except Exception as e:
+        print(f"Asset classification failed: {e}")
+        return "ambiguous"
 
 
 def generate_analysis_summary(ticker: str, events: List[Dict[str, Any]], forecasts: List[Dict[str, Any]]) -> str:
@@ -507,7 +694,301 @@ def get_company_info(ticker: str) -> Dict[str, str]:
         return {"ticker": ticker, "company_name": ticker, "short_name": ticker}
 
 
-def build_report(ticker: str, events: List[Dict[str, Any]], forecasts: List[Dict[str, Any]], company_info: Dict[str, str] = None) -> Dict[str, Any]:
+def convert_yahoo_ticker_to_coingecko_id(yahoo_ticker: str, original_input: str = "") -> str:
+    """
+    Convert Yahoo Finance crypto ticker format to CoinGecko coin ID using dynamic resolution.
+    Args:
+        yahoo_ticker: Yahoo Finance ticker (e.g., 'DOGE-USD', 'BTC-USD')
+        original_input: Original user input (e.g., 'PHALA NETWORK', 'DOGECOIN')
+    Returns:
+        CoinGecko coin ID (e.g., 'dogecoin', 'bitcoin', 'phala-network')
+    """
+    # Read Gemini configuration up-front
+    api_key = os.getenv("GEMINI_API_KEY")
+    model = os.getenv("GEMINI_MODEL")
+    api_base = os.getenv("GEMINI_API_BASE")
+    # URL will be built when api_key is present
+    if api_key:
+        url = f"{api_base}/models/{model}:generateContent?key={api_key}"
+    else:
+        url = None
+
+    # Remove the -USD suffix
+    if yahoo_ticker.endswith('-USD'):
+        base_ticker = yahoo_ticker[:-4]
+    else:
+        base_ticker = yahoo_ticker
+
+    # Use original input if available, otherwise use base ticker
+    search_term = original_input if original_input else base_ticker
+
+    # Try to get coin ID using Gemini first
+    try:
+        if api_key:
+            prompt = f"""
+            Convert this cryptocurrency name or ticker to the correct CoinGecko coin ID:
+
+            Input: "{search_term}"
+
+            CoinGecko uses specific coin IDs (like 'bitcoin', 'ethereum', 'dogecoin', 'pha') 
+            rather than ticker symbols. These are usually short, lowercase identifiers.
+
+            Return ONLY the CoinGecko coin ID in lowercase, nothing else. No explanations.
+
+            Examples:
+            - "Bitcoin" -> "bitcoin"
+            - "BTC" -> "bitcoin" 
+            - "Dogecoin" -> "dogecoin"
+            - "DOGE" -> "dogecoin"
+            - "Ethereum" -> "ethereum"
+            - "PHALA NETWORK" -> "pha"
+            - "PHA" -> "pha"
+            """
+
+            body = {
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature": 0.1,
+                    "responseMimeType": "text/plain"
+                }
+            }
+
+            r = requests.post(url, json=body, timeout=30)
+            r.raise_for_status()
+            data = r.json()
+
+            # Extract the coin ID from Gemini response
+            coin_id = data["candidates"][0]["content"]["parts"][0]["text"].strip().lower()
+
+            # Clean up coin ID (remove spaces, special characters except hyphens)
+            coin_id = re.sub(r'[^a-z0-9-]', '', coin_id)
+
+            if coin_id and len(coin_id) > 2:
+                print(f"✓ Gemini resolved '{search_term}' to CoinGecko ID: '{coin_id}'")
+                return coin_id
+
+    except Exception as e:
+        print(f"Gemini coin ID resolution failed for {search_term}: {e}")
+
+    # Fallback: Try web search
+    try:
+        print(f"Attempting web search for coin ID: {search_term}")
+        search_results = ddgs_search(
+            query=f"{search_term} CoinGecko coin ID cryptocurrency",
+            max_results=3
+        )
+
+        if search_results and len(search_results) > 0:
+            # Extract coin ID from search results
+            search_text = " ".join([result.get('title', '') + ' ' + result.get('content', '') for result in search_results])
+
+            # Use Gemini to parse the search results and extract the coin ID
+            parse_prompt = f"""
+            Based on these search results about "{search_term}", extract the correct CoinGecko coin ID.
+
+            Search results:
+            {search_text}
+
+            Return ONLY the CoinGecko coin ID in lowercase, nothing else. No explanations.
+            Examples: "bitcoin", "ethereum", "dogecoin", "phala-network"
+            """
+
+            if api_key:
+                parse_body = {
+                    "contents": [{"role": "user", "parts": [{"text": parse_prompt}]}],
+                    "generationConfig": {
+                        "temperature": 0.1,
+                        "responseMimeType": "text/plain"
+                    }
+                }
+
+                parse_r = requests.post(url, json=parse_body, timeout=30)
+                parse_r.raise_for_status()
+                parse_data = parse_r.json()
+
+                parsed_coin_id = parse_data["candidates"][0]["content"]["parts"][0]["text"].strip().lower()
+                parsed_coin_id = re.sub(r'[^a-z0-9-]', '', parsed_coin_id)
+
+                if parsed_coin_id and len(parsed_coin_id) > 2:
+                    print(f"✓ Web search + Gemini parsing resolved '{search_term}' to CoinGecko ID: '{parsed_coin_id}'")
+                    return parsed_coin_id
+
+    except Exception as e:
+        print(f"Web search coin ID resolution failed for {search_term}: {e}")
+
+    # Final fallback: return empty string if all resolution methods fail
+    print(f"⚠ All resolution methods failed for {search_term}")
+    return ""
+
+
+def get_crypto_info(ticker: str, original_input: str = "") -> Dict[str, Any]:
+    """
+    Get basic information about a cryptocurrency using CoinGecko API.
+    Args:
+        ticker: Cryptocurrency ticker symbol (e.g., 'bitcoin', 'ethereum', 'btc')
+    Returns:
+        Dict with cryptocurrency info including name, symbol, market cap, etc.
+    """
+    # Read API keys / env vars up-front
+    demo_api_key = os.getenv("COINGECKO_DEMO_API_KEY")
+    pro_api_key = os.getenv("COINGECKO_API_KEY")
+
+    try:
+        if not CoinGeckoAPI:
+            raise ImportError("CoinGeckoAPI not available")
+
+        # Initialize client based on available keys (demo > pro > default)
+        if demo_api_key:
+            client = CoinGeckoAPI(demo_api_key=demo_api_key, environment="demo")
+        elif pro_api_key:
+            client = CoinGeckoAPI(pro_api_key=pro_api_key, environment="pro")
+        else:
+            client = CoinGeckoAPI()
+
+        # Convert Yahoo Finance ticker to CoinGecko coin ID
+        # CoinGecko uses coin IDs (like 'bitcoin') rather than symbols
+        coin_id = convert_yahoo_ticker_to_coingecko_id(ticker, original_input)
+
+        # Get coin data
+        coin_data = client.coins.get_id(id=coin_id)
+
+        # Extract data with proper attribute access
+        market_data = getattr(coin_data, 'market_data', None)
+
+        current_price_usd = 0
+        market_cap_usd = 0
+        total_volume_usd = 0
+        price_change_percentage_24h = 0
+        price_change_percentage_7d = 0
+        circulating_supply = 0
+        total_supply = 0
+
+        if market_data:
+            # Access nested attributes properly
+            current_price = getattr(market_data, 'current_price', None)
+            if current_price and hasattr(current_price, 'usd'):
+                current_price_usd = getattr(current_price, 'usd', 0)
+
+            market_cap = getattr(market_data, 'market_cap', None)
+            if market_cap and hasattr(market_cap, 'usd'):
+                market_cap_usd = getattr(market_cap, 'usd', 0)
+
+            total_volume = getattr(market_data, 'total_volume', None)
+            if total_volume and hasattr(total_volume, 'usd'):
+                total_volume_usd = getattr(total_volume, 'usd', 0)
+
+            price_change_percentage_24h = getattr(market_data, 'price_change_percentage_24h', 0)
+            price_change_percentage_7d = getattr(market_data, 'price_change_percentage_7d', 0)
+            circulating_supply = getattr(market_data, 'circulating_supply', 0)
+            total_supply = getattr(market_data, 'total_supply', 0)
+
+        return {
+            "ticker": ticker.upper(),
+            "coin_id": coin_id,
+            "name": getattr(coin_data, 'name', ticker),
+            "symbol": getattr(coin_data, 'symbol', ticker).upper(),
+            "market_cap_usd": market_cap_usd,
+            "current_price_usd": current_price_usd,
+            "price_change_percentage_24h": price_change_percentage_24h,
+            "price_change_percentage_7d": price_change_percentage_7d,
+            "total_volume_usd": total_volume_usd,
+            "circulating_supply": circulating_supply,
+            "total_supply": total_supply,
+            "last_updated": datetime.now()
+        }
+
+    except Exception as e:
+        print(f"Error getting crypto info for {ticker}: {e}")
+
+        # Try to search for the coin if direct lookup fails
+        try:
+            if CoinGeckoAPI:
+                # Reuse previously-read keys to initialize client for search fallback
+                if pro_api_key:
+                    client = CoinGeckoAPI(pro_api_key=pro_api_key, environment="pro")
+                elif demo_api_key:
+                    client = CoinGeckoAPI(demo_api_key=demo_api_key, environment="demo")
+                else:
+                    client = CoinGeckoAPI()
+
+                search_results = client.search.get(query=original_input if original_input else ticker)
+                coins = getattr(search_results, 'coins', [])
+
+                if coins:
+                    # Use the first result
+                    first_coin = coins[0]
+                    coin_id = getattr(first_coin, 'id', None)
+
+                    if coin_id:
+                        coin_data = client.coins.get_id(id=coin_id)
+
+                        # Extract data with proper attribute access
+                        market_data = getattr(coin_data, 'market_data', None)
+
+                        current_price_usd = 0
+                        market_cap_usd = 0
+                        total_volume_usd = 0
+                        price_change_percentage_24h = 0
+                        price_change_percentage_7d = 0
+                        circulating_supply = 0
+                        total_supply = 0
+
+                        if market_data:
+                            # Access nested attributes properly
+                            current_price = getattr(market_data, 'current_price', None)
+                            if current_price and hasattr(current_price, 'usd'):
+                                current_price_usd = getattr(current_price, 'usd', 0)
+
+                            market_cap = getattr(market_data, 'market_cap', None)
+                            if market_cap and hasattr(market_cap, 'usd'):
+                                market_cap_usd = getattr(market_cap, 'usd', 0)
+
+                            total_volume = getattr(market_data, 'total_volume', None)
+                            if total_volume and hasattr(total_volume, 'usd'):
+                                total_volume_usd = getattr(total_volume, 'usd', 0)
+
+                            price_change_percentage_24h = getattr(market_data, 'price_change_percentage_24h', 0)
+                            price_change_percentage_7d = getattr(market_data, 'price_change_percentage_7d', 0)
+                            circulating_supply = getattr(market_data, 'circulating_supply', 0)
+                            total_supply = getattr(market_data, 'total_supply', 0)
+
+                        return {
+                            "ticker": ticker.upper(),
+                            "coin_id": coin_id,
+                            "name": getattr(coin_data, 'name', ticker),
+                            "symbol": getattr(coin_data, 'symbol', ticker).upper(),
+                            "market_cap_usd": market_cap_usd,
+                            "current_price_usd": current_price_usd,
+                            "price_change_percentage_24h": price_change_percentage_24h,
+                            "price_change_percentage_7d": price_change_percentage_7d,
+                            "total_volume_usd": total_volume_usd,
+                            "circulating_supply": circulating_supply,
+                            "total_supply": total_supply,
+                            "last_updated": datetime.now()
+                        }
+
+        except Exception as search_e:
+            print(f"Crypto search fallback failed for {ticker}: {search_e}")
+
+        # Return minimal info if all attempts fail
+        return {
+            "ticker": ticker.upper(),
+            "coin_id": ticker.lower(),
+            "name": ticker,
+            "symbol": ticker.upper(),
+            "market_cap_usd": 0,
+            "current_price_usd": 0,
+            "price_change_percentage_24h": 0,
+            "price_change_percentage_7d": 0,
+            "total_volume_usd": 0,
+            "circulating_supply": 0,
+            "total_supply": 0,
+            "last_updated": datetime.now(),
+            "error": f"Failed to fetch crypto data for {ticker}"
+        }
+
+
+def build_report(ticker: str, events: List[Dict[str, Any]], forecasts: List[Dict[str, Any]], company_info: Optional[Dict[str, str]] = None, crypto_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Generates a markdown brief with events and price forecasts with enhanced formatting and colors.
     Args:
@@ -520,17 +1001,44 @@ def build_report(ticker: str, events: List[Dict[str, Any]], forecasts: List[Dict
     start_date = datetime.now() - timedelta(days=30)
     end_date = datetime.now()
     
-    # Use company name if available, otherwise use ticker
-    display_name = f"{company_info.get('company_name', ticker)} ({ticker})" if company_info else ticker
+    # Use company name or crypto name if available, otherwise use ticker
+    if company_info:
+        display_name = f"{company_info.get('company_name', ticker)} ({ticker})"
+        report_type = "Stock"
+    elif crypto_info:
+        display_name = f"{crypto_info.get('name', ticker)} ({ticker})"
+        report_type = "Cryptocurrency"
+    else:
+        display_name = ticker
+        report_type = "Asset"
     
-    md = [f"# 📊 Stock Analysis Report for {display_name}", "", f"**Analysis Period**: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"]
+    md = [f"# 📊 {report_type} Analysis Report for {display_name}", "", f"**Analysis Period**: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"]
     md.append("")
+    
+    # Add crypto information if available
+    if crypto_info:
+        md.append("## ₿ Cryptocurrency Information")
+        md.append(f"| **Symbol** | {crypto_info.get('symbol', 'N/A')}")
+        md.append(f"| **Current Price** | ${crypto_info.get('current_price_usd', 0):,.2f}")
+        md.append(f"| **Market Cap** | ${crypto_info.get('market_cap_usd', 0):,.0f}")
+        md.append(f"| **24h Change** | {crypto_info.get('price_change_percentage_24h', 0):+.2f}%")
+        md.append(f"| **7d Change** | {crypto_info.get('price_change_percentage_7d', 0):+.2f}%")
+        md.append(f"| **24h Volume** | ${crypto_info.get('total_volume_usd', 0):,.0f}")
+        md.append("")
+    
+    # Add company information if available
+    if company_info:
+        md.append("## 🏢 Company Information")
+        md.append(f"| **Company Name** | {company_info.get('company_name', 'N/A')}")
+        md.append(f"| **Short Name** | {company_info.get('short_name', 'N/A')}")
+        md.append("")
+    
     md.append("## 📈 Significant Price Events")
     if events:
         md.append("| Date | Price | Change | Direction |")
         md.append("|------|-------|--------|-----------|")
         for ev in events:
-            d = pd.to_datetime(ev.get("date")).strftime('%Y-%m-%d')
+            d = ev.get("date").strftime('%Y-%m-%d') if ev.get("date") and hasattr(ev.get("date"), 'strftime') else "N/A"
             p = ev.get("price", 0.0)
             c = ev.get("change_percent", 0.0)
             dr = ev.get("direction", "")
@@ -552,7 +1060,7 @@ def build_report(ticker: str, events: List[Dict[str, Any]], forecasts: List[Dict
         md.append("| Date | Forecast Price | Confidence | Trend |")
         md.append("|------|----------------|------------|-------|")
         for f in forecasts:
-            d = pd.to_datetime(f.get("date")).strftime('%Y-%m-%d')
+            d = f.get("date").strftime('%Y-%m-%d') if f.get("date") and hasattr(f.get("date"), 'strftime') else "N/A"
             price = f.get("forecast_price", 0.0)
             conf = f.get("confidence", 0.0) * 100
             trend = f.get("trend", "")

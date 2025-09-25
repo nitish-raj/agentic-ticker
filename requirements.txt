@@ -8,4 +8,5 @@ requests
 pydantic
 python-dotenv
 plotly
-streamlit
+coingecko-sdk
+ddgs

@@ -244,7 +244,7 @@ def main():
             st.subheader("📈 Price Chart")
             try:
                 price_fig = create_price_chart(st.session_state.price_data, st.session_state.indicator_data)
-                st.plotly_chart(price_fig, width='stretch')
+                st.plotly_chart(price_fig)
             except Exception as e:
                 st.warning(f"Chart unavailable: {e}")
             
@@ -252,7 +252,7 @@ def main():
             if 'forecasts' in st.session_state:
                 try:
                     forecast_fig = create_forecast_chart(st.session_state.forecasts)
-                    st.plotly_chart(forecast_fig, width='stretch')
+                    st.plotly_chart(forecast_fig)
                 except Exception as e:
                     st.warning(f"Forecast chart unavailable: {e}")
             

@@ -223,13 +223,21 @@ Input: "BTC"
 │   ├── data_models.py         # Data structures and validation
 │   ├── ui_components.py       # Visualization components
 │   └── json_helpers.py        # JSON processing utilities
-├── .specify/                  # Specification-driven development
-│   ├── memory/                # Agent memory and context
-│   ├── scripts/               # Development automation
-│   └── templates/             # Document templates
-├── requirements.txt           # Python dependencies
-├── setup.cfg                  # Development configuration
-└── README.md                  # This documentation
+├── tests/                     # Test suite
+│   ├── conftest.py           # Test configuration and fixtures
+│   ├── test_data_models.py    # Data model tests
+│   ├── test_integration.py    # Integration tests
+│   ├── test_orchestrator.py  # Orchestrator tests
+│   ├── test_services.py       # Service function tests
+│   └── test_ui_components.py # UI component tests
+├── .devcontainer/             # Development container configuration
+├── .env.example              # Environment variables template
+├── .gitignore               # Git ignore rules
+├── AGENTS.md                # Agent documentation
+├── launch.json              # Launch configuration
+├── requirements.txt         # Python dependencies
+├── setup.cfg                # Development configuration
+└── README.md                # This documentation
 ```
 
 ## 🧪 Development

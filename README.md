@@ -1,18 +1,17 @@
 # Agentic-Ticker 🤖
 
-A sophisticated demonstration of Agentic AI principles through a stock and cryptocurrency analysis system powered by Google Gemini. This project showcases how AI agents can autonomously plan, execute, and reason through complex analytical workflows.
+> **⚠️ Educational Purpose Only**: This project is for educational demonstration purposes only and should not be used for actual financial research, trading decisions, or investment advice.
+
+A demonstration of Agentic AI principles through a stock and cryptocurrency analysis system powered by Google Gemini. This project showcases how AI agents autonomously plan, execute, and reason through complex analytical workflows.
 
 ## 🎯 Overview
 
-Agentic-Ticker demonstrates the core concepts of Agentic AI by implementing a self-directed analysis system that:
+Agentic-Ticker demonstrates how an LLM (Google Gemini) autonomously calls different functions to analyze assets:
 
-- **Autonomously plans** analysis strategies using Google Gemini as the reasoning engine
-- **Dynamically adapts** to different asset types (stocks vs cryptocurrencies)
-- **Intelligently sequences** function calls based on context and available data
-- **Provides natural language reasoning** for each decision step
-- **Handles uncertainty** by gathering additional information when needed
-
-Unlike traditional scripted workflows, this system thinks and acts like a human analyst - determining what information is needed, gathering it systematically, and building comprehensive insights.
+- **LLM decides** which functions to call based on user input
+- **Sequences function calls** dynamically (web search → validation → data loading → analysis)
+- **Adapts to asset type** (stocks vs cryptocurrencies)
+- **Explains reasoning** for each function call in natural language
 
 ## 🧠 How Agentic AI Works
 
@@ -66,89 +65,87 @@ graph TD
     BuildReport --> Complete([Analysis Complete])
     
     %% Style nodes
-    classDef process fill:#e1f5fe,stroke:#01579b,stroke-width:2px
-    classDef decision fill:#fff3e0,stroke:#e65100,stroke-width:2px
-    classDef startend fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    classDef process fill:#1976d2,stroke:#0d47a1,stroke-width:2px,color:#ffffff
+    classDef decision fill:#f57c00,stroke:#e65100,stroke-width:2px,color:#ffffff
+    classDef startend fill:#388e3c,stroke:#1b5e20,stroke-width:2px,color:#ffffff
     
     class Start,Complete startend
     class AssetType,Classify,Stock decision
     class WebSearch,Validate,CompanyInfo,CryptoInfo,LoadPrices,LoadCryptoPrices,ComputeIndicators,DetectEvents,Forecast,BuildReport process
 ```
 
-### Key Agentic Behaviors
+### How LLM Calls Functions
 
-1. **Context-Aware Planning**: The agent assesses available information and determines next steps
-2. **Dynamic Function Selection**: Chooses appropriate tools based on asset type and analysis needs
-3. **Natural Language Reasoning**: Explains each decision in human-readable terms
-4. **Error Recovery**: Handles missing data by seeking additional information
-5. **Progressive Refinement**: Builds understanding incrementally through multiple steps
+The LLM analyzes user input and decides which functions to call:
+
+1. **Input Analysis**: LLM determines asset type and what information is needed
+2. **Function Selection**: LLM chooses appropriate functions from available tools
+3. **Sequential Execution**: LLM calls functions in logical order (search → validate → analyze)
+4. **Result Processing**: LLM interprets function outputs and decides next steps
+5. **Report Generation**: LLM synthesizes all findings into final analysis
 
 ## 🚀 Features
 
-### Core Capabilities
-- **Multi-Asset Support**: Analyzes both stocks and cryptocurrencies
-- **Intelligent Classification**: Automatically determines asset type from user input
-- **Web Integration**: Uses DuckDuckGo search for context gathering
-- **Technical Analysis**: Computes RSI, MACD, Bollinger Bands, and volatility
-- **Event Detection**: Identifies significant price movements based on thresholds
-- **ML Forecasting**: Generates price predictions using machine learning models
-- **Comprehensive Reporting**: Synthesizes all findings into actionable insights
+### What the System Does
+- **Asset Analysis**: Analyzes stocks and cryptocurrencies with technical indicators
+- **Interactive Charts**: Displays price charts, technical indicators, and forecasts
+- **Web Search**: Gathers context about unknown assets using DuckDuckGo
+- **Technical Analysis**: Calculates RSI, MACD, Bollinger Bands
+- **Price Forecasts**: Generates basic ML predictions
+- **Natural Language Reports**: Provides analysis explanations
 
-### Agentic Features
-- **Self-Directed Workflow**: No predefined execution order
-- **Contextual Decision Making**: Adapts strategy based on available data
-- **Natural Language Explanations**: Shows reasoning for each step
-- **Dynamic Tool Selection**: Chooses appropriate functions automatically
-- **Progressive Understanding**: Builds knowledge through iterative analysis
+### How LLM Controls the Flow
+- **No Fixed Script**: LLM decides function call sequence dynamically
+- **Context-Aware**: Adapts based on available information
+- **Self-Correcting**: Handles errors by trying alternative approaches
+- **Explains Decisions**: Shows reasoning for each function call
 
 ## 🛠️ Technical Architecture
 
-### System Components
+### System Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Streamlit UI Layer                       │
+│                    Streamlit UI                             │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
-│  │   Logs      │  │  Parameters │  │   Report    │        │
+│  │   Charts    │  │   Input     │  │   Logs      │        │
 │  └─────────────┘  └─────────────┘  └─────────────┘        │
 └─────────────────────────────────────────────────────────────┘
-                              │
+                               │
 ┌─────────────────────────────────────────────────────────────┐
-│                   Orchestrator Layer                        │
+│                 LLM Orchestrator                            │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
-│  │   Planner   │  │   Tools     │  │  Context    │        │
-│  │  (Gemini)   │  │  Registry   │  │  Manager    │        │
+│  │   Gemini    │  │   Function  │  │   Context   │        │
+│  │   Planner   │  │   Registry  │  │   Manager   │        │
 │  └─────────────┘  └─────────────┘  └─────────────┘        │
 └─────────────────────────────────────────────────────────────┘
-                              │
+                               │
 ┌─────────────────────────────────────────────────────────────┐
-│                   Services Layer                            │
+│                 Available Functions                         │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
-│  │   Data      │  │  Analysis   │  │  Reporting  │        │
-│  │  Services   │  │  Services   │  │  Services   │        │
+│  │   Search    │  │   Data      │  │  Analysis   │        │
+│  │   Tools     │  │   Loading   │  │   Tools     │        │
 │  └─────────────┘  └─────────────┘  └─────────────┘        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Available Tools (Functions)
+### Available Functions
 
-**Information Gathering:**
-- `ddgs_search` - Web search for context gathering
-- `validate_ticker` - Asset symbol validation and normalization
-- `get_company_info` - Company details retrieval
-- `get_crypto_info` - Cryptocurrency metadata retrieval
+**Search & Validation:**
+- `ddgs_search` - Web search for asset context
+- `validate_ticker` - Confirm asset symbol exists
 
-**Data Processing:**
-- `load_prices` - Historical stock price data
-- `load_crypto_prices` - Historical crypto price data
-- `compute_indicators` - Technical indicator calculations
+**Data Loading:**
+- `get_company_info` - Company details (stocks)
+- `get_crypto_info` - Crypto details (cryptocurrencies)
+- `load_prices` - Historical price data (stocks)
+- `load_crypto_prices` - Historical price data (crypto)
 
-**Analysis:**
-- `detect_events` - Significant price movement detection
-- `forecast_prices` - Machine learning price predictions
-
-**Reporting:**
-- `build_report` - Comprehensive analysis synthesis
+**Analysis Functions:**
+- `compute_indicators` - Calculate RSI, MACD, Bollinger Bands
+- `detect_events` - Find significant price movements
+- `forecast_prices` - Generate price predictions
+- `build_report` - Create final analysis report
 
 ## 📦 Prerequisites
 
@@ -237,15 +234,14 @@ Input: "BTC"
 
 ## 🧪 Development
 
-### Specification-Driven Development
+### Development Approach
 
-This project follows a rigorous specification-driven approach:
+This project demonstrates:
 
-- **Feature Specifications**: Clear requirements and acceptance criteria
-- **Implementation Plans**: Detailed technical roadmaps
-- **Task Breakdowns**: Granular development tasks
-- **Automated Testing**: Comprehensive test coverage
-- **Modular Architecture**: Clean separation of concerns
+- **LLM Function Calling**: How Gemini autonomously selects and sequences functions
+- **Dynamic Workflows**: No predefined execution order - LLM decides next steps
+- **Error Handling**: LLM adapts when functions fail or return unexpected results
+- **Context Management**: LLM maintains state across multiple function calls
 
 ### Running Tests
 
@@ -253,23 +249,11 @@ This project follows a rigorous specification-driven approach:
 # Run all tests
 pytest tests/
 
-# Run specific test categories
-pytest tests/unit/
-pytest tests/integration/
+# Run specific test file
+pytest tests/test_services.py
+
 ```
 
-### Code Quality
-
-```bash
-# Linting
-flake8 src/
-
-# Type checking
-mypy src/
-
-# Security scanning
-bandit -r src/
-```
 
 ## 🔧 Configuration
 
@@ -291,26 +275,19 @@ The agent's behavior can be customized by:
 3. **Enhancing Analysis**: Add new analysis functions in `src/services.py`
 4. **UI Customization**: Modify the Streamlit interface in `agentic_ticker.py`
 
-## 🤝 Contributing
-
-We welcome contributions! Please see our contributing guidelines for:
-
-1. **Code Standards**: Follow PEP 8 and type hints
-2. **Testing Requirements**: Maintain test coverage
-3. **Documentation**: Update README and docstrings
-4. **Pull Request Process**: Template and review criteria
-
 ## 📄 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## 🙏 Acknowledgments
 
-- **Google Gemini** - For providing the reasoning engine
-- **Streamlit** - For the excellent UI framework
-- **yFinance** - For financial data access
-- **CoinGecko** - For cryptocurrency data
-- **DuckDuckGo** - For web search capabilities
+This project is built using open source libraries and free APIs:
+
+- **[Google Gemini](https://ai.google.dev/)** - AI reasoning engine
+- **[Streamlit](https://github.com/streamlit/streamlit)** - UI framework
+- **[yFinance](https://github.com/ranaroussi/yfinance)** - Financial data access
+- **[CoinGecko SDK](https://github.com/man-c/pycoingecko)** - Cryptocurrency data
+- **[DDGS Search](https://github.com/deedy5/ddgs)** - Web search capabilities
 
 ## 📞 Support
 
@@ -322,4 +299,4 @@ For questions, issues, or contributions:
 
 ---
 
-**Built with ❤️ to demonstrate the power of Agentic AI**
+**Built to demonstrate the power of Agentic AI**

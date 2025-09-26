@@ -33,7 +33,7 @@ def main():
     # Centered header section
     col_header_left, col_header_center, col_header_right = st.columns([1, 3, 1])
     with col_header_center:
-        st.title("Agentic-Ticker 📈 — Gemini Orchestrated", anchor="header", width='content')
+        st.title("Agentic-Ticker 📈 - Mocking Agentic AI", anchor="header", width='content')
         st.markdown("A tool to mock up an agentic AI that analyzes stock and cryptocurrency tickers using Google Gemini and various data sources.")
         
         # Add disclaimer

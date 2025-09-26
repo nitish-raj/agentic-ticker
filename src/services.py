@@ -1038,7 +1038,30 @@ def build_report(ticker: str, events: List[Dict[str, Any]], forecasts: List[Dict
         md.append("| Date | Price | Change | Direction |")
         md.append("|------|-------|--------|-----------|")
         for ev in events:
-            d = ev.get("date").strftime('%Y-%m-%d') if ev.get("date") and hasattr(ev.get("date"), 'strftime') else "N/A"
+            d = ev.get("date")
+            # Format date properly - extract just the date part
+            if d is None:
+                formatted_date = "N/A"
+            elif hasattr(d, 'strftime'):
+                # Handle pandas Timestamp and datetime objects
+                try:
+                    formatted_date = d.strftime('%Y-%m-%d')
+                except (ValueError, TypeError, AttributeError):
+                    # Fallback for pandas Timestamp with timezone
+                    if hasattr(d, 'normalize'):
+                        formatted_date = d.normalize().strftime('%Y-%m-%d')
+                    elif hasattr(d, 'date'):
+                        formatted_date = d.date().strftime('%Y-%m-%d')
+                    else:
+                        formatted_date = str(d).split(' ')[0]  # Get first part (date)
+            elif isinstance(d, str):
+                # Handle string dates - split on space or T to remove time part
+                formatted_date = d.split(' ')[0].split('T')[0]
+            elif hasattr(d, 'isoformat'):
+                formatted_date = d.isoformat().split('T')[0]  # Get just the date part
+            else:
+                formatted_date = str(d).split(' ')[0]  # Get first part (date)
+            
             p = ev.get("price", 0.0)
             c = ev.get("change_percent", 0.0)
             dr = ev.get("direction", "")
@@ -1051,7 +1074,7 @@ def build_report(ticker: str, events: List[Dict[str, Any]], forecasts: List[Dict
                 direction = dr
             # Add color coding for change
             change_color = "📈" if c > 0 else "📉" if c < 0 else "➡️"
-            md.append(f"| {d} | ${p:.2f} | {change_color} {c:+.2f}% | {direction} |")
+            md.append(f"| {formatted_date} | ${p:.2f} | {change_color} {c:+.2f}% | {direction} |")
     else:
         md.append("📋 No significant price events detected.")
     md.append("")
@@ -1060,7 +1083,29 @@ def build_report(ticker: str, events: List[Dict[str, Any]], forecasts: List[Dict
         md.append("| Date | Forecast Price | Confidence | Trend |")
         md.append("|------|----------------|------------|-------|")
         for f in forecasts:
-            d = f.get("date").strftime('%Y-%m-%d') if f.get("date") and hasattr(f.get("date"), 'strftime') else "N/A"
+            d = f.get("date")
+            # Format date properly - extract just the date part
+            if d is None:
+                formatted_date = "N/A"
+            elif hasattr(d, 'strftime'):
+                # Handle pandas Timestamp and datetime objects
+                try:
+                    formatted_date = d.strftime('%Y-%m-%d')
+                except (ValueError, TypeError, AttributeError):
+                    # Fallback for pandas Timestamp with timezone
+                    if hasattr(d, 'normalize'):
+                        formatted_date = d.normalize().strftime('%Y-%m-%d')
+                    elif hasattr(d, 'date'):
+                        formatted_date = d.date().strftime('%Y-%m-%d')
+                    else:
+                        formatted_date = str(d).split(' ')[0]  # Get first part (date)
+            elif isinstance(d, str):
+                # Handle string dates - split on space or T to remove time part
+                formatted_date = d.split(' ')[0].split('T')[0]
+            elif hasattr(d, 'isoformat'):
+                formatted_date = d.isoformat().split('T')[0]  # Get just the date part
+            else:
+                formatted_date = str(d).split(' ')[0]  # Get first part (date)
             price = f.get("forecast_price", 0.0)
             conf = f.get("confidence", 0.0) * 100
             trend = f.get("trend", "")
@@ -1079,7 +1124,7 @@ def build_report(ticker: str, events: List[Dict[str, Any]], forecasts: List[Dict
             else:
                 trend_emoji = "➡️"
             
-            md.append(f"| {d} | ${price:.2f} | {conf_emoji} {conf:.1f}% | {trend_emoji} {trend} |")
+            md.append(f"| {formatted_date} | ${price:.2f} | {conf_emoji} {conf:.1f}% | {trend_emoji} {trend} |")
     else:
         md.append("📋 No price forecasts available.")
     md.append("")

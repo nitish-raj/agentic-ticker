@@ -2,7 +2,7 @@
 
 > **⚠️ Educational Purpose Only**: This project is for educational demonstration purposes only and should not be used for actual financial research, trading decisions, or investment advice.
 
-A demonstration of Agentic AI principles through a stock and cryptocurrency analysis system powered by Google Gemini. This project showcases how AI agents autonomously plan, execute, and reason through complex analytical workflows.
+A demonstration of Agentic AI principles through a stock and cryptocurrency analysis system powered by Google Gemini. This project showcases how AI agents autonomously plan, execute, and reason through complex analytical workflows. The only task of the LLM is to decide which functions to call and in what order. It does not write any code itself or perform any analysis directly. It simply orchestrates the available tools to achieve the desired outcome.
 
 ## 🎯 Overview
 
@@ -50,18 +50,18 @@ graph TD
     Classify -->|Crypto| Validate
     
     Validate --> Stock{Is Stock?}
-    Stock -->|Yes| CompanyInfo[get_company_info<br/>Load company details]
-    Stock -->|No| CryptoInfo[get_crypto_info<br/>Load crypto details]
+    Stock -->|Yes| CompanyInfo[get_company_info()<br/>Load company details]
+    Stock -->|No| CryptoInfo[get_crypto_info()<br/>Load crypto details]
     
-    CompanyInfo --> LoadPrices[load_prices<br/>Fetch OHLC data]
-    CryptoInfo --> LoadCryptoPrices[load_crypto_prices<br/>Fetch crypto data]
+    CompanyInfo --> LoadPrices[load_prices()<br/>Fetch OHLC data]
+    CryptoInfo --> LoadCryptoPrices[load_crypto_prices()<br/>Fetch crypto data]
     
-    LoadPrices --> ComputeIndicators[compute_indicators<br/>Calculate RSI, MACD, BB]
+    LoadPrices --> ComputeIndicators[compute_indicators()<br/>Calculate RSI, MACD, BB]
     LoadCryptoPrices --> ComputeIndicators
     
-    ComputeIndicators --> DetectEvents[detect_events<br/>Find price movements]
-    DetectEvents --> Forecast[forecast_prices<br/>ML predictions]
-    Forecast --> BuildReport[build_report<br/>Synthesize findings]
+    ComputeIndicators --> DetectEvents[detect_events()<br/>Find price movements]
+    DetectEvents --> Forecast[forecast_prices()<br/>ML predictions]
+    Forecast --> BuildReport[build_report()<br/>Synthesize findings]
     BuildReport --> Complete([Analysis Complete])
     
     %% Style nodes

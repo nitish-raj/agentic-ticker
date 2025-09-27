@@ -15,74 +15,188 @@ Agentic-Ticker demonstrates how an LLM (Google Gemini) autonomously calls differ
 
 ## 🧠 How Agentic AI Works
 
-### The Agent Loop
+### The True Agentic Loop
 
-The system operates on a continuous **Plan → Execute → Reason → Repeat** cycle:
-
-```mermaid
-graph TD
-    A[User Input: Asset Analysis Request] --> B[Gemini Planner]
-    B --> C{What do I know?}
-    C -->|Insufficient Info| D[Gather Information]
-    C -->|Sufficient Info| E[Execute Analysis]
-    D --> F[Web Search/Validation]
-    F --> C
-    E --> G[Compute Technical Indicators]
-    G --> H[Detect Significant Events]
-    H --> I[Generate Forecasts]
-    I --> J[Build Comprehensive Report]
-    J --> K{Analysis Complete?}
-    K -->|No| B
-    K -->|Yes| L[Present Results]
-```
-
-### Decision Flow Diagram
+The system operates on a continuous **LLM Orchestrator Loop** where the LLM is called repeatedly, with each function's output being fed back as context for the next decision:
 
 ```mermaid
 graph TD
-    Start([Start Analysis]) --> AssetType{What type of asset?}
+    Start["User Input: Asset Analysis Request"] --> Init["Initialize Context<br/>ticker_input, days, threshold, forecast_days<br/>asset_type: 'ambiguous'"]
+    Init --> LoopStart{"step_count < max_steps (10)?"}
     
-    AssetType -->|Unknown| WebSearch[ddgs_search<br/>Gather context]
-    AssetType -->|Known| Validate[validate_ticker<br/>Confirm symbol]
+    LoopStart -->|Yes| PrepareLLMCall["Prepare LLM Call<br/>• Get tools_spec<br/>• Copy transcript<br/>• Add context summary to transcript<br/>• Context shows available data keys"]
+    PrepareLLMCall --> LLMCall["🤖 Call LLM Orchestrator<br/>Pass: tools_spec + transcript + context<br/>LLM sees full execution history"]
     
-    WebSearch --> Classify{Classify Asset}
-    Classify -->|Stock| Validate
-    Classify -->|Crypto| Validate
+    LLMCall --> LLMAnalyze{"LLM Analysis:<br/>What data do I have?<br/>What function should I call next?"}
     
-    Validate --> Stock{Is Stock?}
-    Stock -->|Yes| CompanyInfo[get_company_info()<br/>Load company details]
-    Stock -->|No| CryptoInfo[get_crypto_info()<br/>Load crypto details]
+    LLMAnalyze -->|Need more data| CheckAssetType{"What type of asset?<br/>Based on input + context"}
+    CheckAssetType -->|Unknown| SearchDecision{"Should I search web?<br/>Do I have context about this asset?"}
+    SearchDecision -->|No web context| CallWebSearch["Call: ddgs_search(query=ticker_input)"]
+    SearchDecision -->|Have web context| ValidateDecision{"Should I validate ticker?<br/>Do I have validated_ticker?"}
     
-    CompanyInfo --> LoadPrices[load_prices()<br/>Fetch OHLC data]
-    CryptoInfo --> LoadCryptoPrices[load_crypto_prices()<br/>Fetch crypto data]
+    CheckAssetType -->|Known| ValidateDecision
     
-    LoadPrices --> ComputeIndicators[compute_indicators()<br/>Calculate RSI, MACD, BB]
-    LoadCryptoPrices --> ComputeIndicators
+    CallWebSearch --> WebResult["Web search results stored<br/>context['ddgs_search'] = results"]
+    WebResult --> ValidateDecision
     
-    ComputeIndicators --> DetectEvents[detect_events()<br/>Find price movements]
-    DetectEvents --> Forecast[forecast_prices()<br/>ML predictions]
-    Forecast --> BuildReport[build_report()<br/>Synthesize findings]
-    BuildReport --> Complete([Analysis Complete])
+    ValidateDecision -->|No validated ticker| CallValidate["Call: validate_ticker(input_text=ticker_input)"]
+    ValidateDecision -->|Have validated ticker| InfoDecision{"Should I get asset info?<br/>Do I have company/crypto info?"}
+    
+    CallValidate --> ValidateResult["Validation result stored<br/>context['validate_ticker'] = ticker<br/>context['validated_ticker'] = ticker"]
+    ValidateResult --> InfoDecision
+    
+    InfoDecision -->|No asset info| CheckAssetInfo{"Is this stock or crypto?<br/>Check context or classify"}
+    CheckAssetInfo -->|Stock| CallCompanyInfo["Call: get_company_info(ticker=validated_ticker)"]
+    CheckAssetInfo -->|Crypto| CallCryptoInfo["Call: get_crypto_info(ticker=validated_ticker, original_input=ticker_input)"]
+    
+    CallCompanyInfo --> CompanyResult["Company info stored<br/>context['get_company_info'] = data"]
+    CallCryptoInfo --> CryptoResult["Crypto info stored<br/>context['get_crypto_info'] = data"]
+    CompanyResult --> PriceDecision
+    CryptoResult --> PriceDecision
+    
+    InfoDecision -->|Have asset info| PriceDecision{"Should I load prices?<br/>Do I have price data?"}
+    PriceDecision -->|No price data| CallLoadPrices["Call: load_prices/load_crypto_prices<br/>(ticker=validated_ticker, days=days)"]
+    PriceDecision -->|Have price data| IndicatorDecision{"Should I compute indicators?<br/>Do I have indicator data?"}
+    
+    CallLoadPrices --> PriceResult["Price data stored<br/>context['load_prices'] = data"]
+    PriceResult --> IndicatorDecision
+    
+    IndicatorDecision -->|No indicators| CallIndicators["Call: compute_indicators(indicator_data=price_data_key)"]
+    IndicatorDecision -->|Have indicators| EventDecision{"Should I detect events?<br/>Do I have events data?"}
+    
+    CallIndicators --> IndicatorResult["Indicators stored<br/>context['compute_indicators'] = data"]
+    IndicatorResult --> EventDecision
+    
+    EventDecision -->|No events| CallEvents["Call: detect_events(indicator_data=indicators_key, threshold=threshold)"]
+    EventDecision -->|Have events| ForecastDecision{"Should I forecast?<br/>Do I have forecast data?"}
+    
+    CallEvents --> EventResult["Events stored<br/>context['detect_events'] = data"]
+    EventResult --> ForecastDecision
+    
+    ForecastDecision -->|No forecast| CallForecast["Call: forecast_prices(indicator_data=indicators_key, days=forecast_days)"]
+    ForecastDecision -->|Have forecast| ReportDecision{"Should I build report?<br/>Do I have all required data?"}
+    
+    CallForecast --> ForecastResult["Forecast stored<br/>context['forecast_prices'] = data"]
+    ForecastResult --> ReportDecision
+    
+    ReportDecision -->|Missing data| LLMAnalyze
+    ReportDecision -->|Have all data| CallReport["Call: build_report(ticker=validated_ticker, events=events_key, forecasts=forecasts_key, company_info=info_key)"]
+    
+    CallReport --> ReportResult["Report generated<br/>Return final result"]
+    ReportResult --> LLMFinal{"LLM Decision:<br/>Return final result?"}
+    
+    LLMAnalyze -->|Have all data| LLMFinal
+    LLMFinal -->|Yes| FinalResult["Return final analysis<br/>Break loop"]
+    LLMFinal -->|No| UpdateContext["Update context and transcript<br/>Add function result to context<br/>Add call + result to transcript"]
+    
+    UpdateContext --> IncrementStep["Increment step_count<br/>step_count++"]
+    IncrementStep --> LoopStart
+    
+    LoopStart -->|No| End["Present Final Results"]
+    
+    FinalResult --> End
     
     %% Style nodes
     classDef process fill:#1976d2,stroke:#0d47a1,stroke-width:2px,color:#ffffff
     classDef decision fill:#f57c00,stroke:#e65100,stroke-width:2px,color:#ffffff
+    classDef llm fill:#9c27b0,stroke:#4a148c,stroke-width:2px,color:#ffffff
     classDef startend fill:#388e3c,stroke:#1b5e20,stroke-width:2px,color:#ffffff
+    classDef function fill:#4caf50,stroke:#2e7d32,stroke-width:2px,color:#ffffff
     
-    class Start,Complete startend
-    class AssetType,Classify,Stock decision
-    class WebSearch,Validate,CompanyInfo,CryptoInfo,LoadPrices,LoadCryptoPrices,ComputeIndicators,DetectEvents,Forecast,BuildReport process
+    class Start,Init,End startend
+    class LoopStart,LLMAnalyze,CheckAssetType,SearchDecision,ValidateDecision,InfoDecision,CheckAssetInfo,PriceDecision,IndicatorDecision,EventDecision,ForecastDecision,ReportDecision,LLMFinal decision
+    class PrepareLLMCall,LLMCall,UpdateContext,IncrementStep process
+    class CallWebSearch,CallValidate,CallCompanyInfo,CallCryptoInfo,CallLoadPrices,CallIndicators,CallEvents,CallForecast,CallReport function
+    class WebResult,ValidateResult,CompanyResult,CryptoResult,PriceResult,IndicatorResult,EventResult,ForecastResult,ReportResult,FinalResult process
+    class LLMCall llm
 ```
 
-### How LLM Calls Functions
+### 🎨 Diagram Legend
 
-The LLM analyzes user input and decides which functions to call:
+| Color | Node Type | Description | Examples |
+|-------|-----------|-------------|----------|
+| 🟢 **Green** | **Start/End Points** | Entry and exit points of the workflow | User Input, Initialize Context, Present Final Results |
+| 🔵 **Blue** | **Process Steps** | System operations and data handling | Prepare LLM Call, Update Context, Store Results |
+| 🟠 **Orange** | **Decision Points** | LLM or system logic decisions | What data do I have? Should I call function? Continue loop? |
+| 🟣 **Purple** | **LLM Operations** | Direct LLM interactions and analysis | Call LLM Orchestrator, LLM Analysis |
+| 🟢 **Light Green** | **Function Calls** | Actual function executions | ddgs_search, validate_ticker, compute_indicators |
 
-1. **Input Analysis**: LLM determines asset type and what information is needed
-2. **Function Selection**: LLM chooses appropriate functions from available tools
-3. **Sequential Execution**: LLM calls functions in logical order (search → validate → analyze)
-4. **Result Processing**: LLM interprets function outputs and decides next steps
-5. **Report Generation**: LLM synthesizes all findings into final analysis
+### 🔄 Flow Patterns
+
+**Decision Flow**: Orange diamonds represent branching logic where the LLM decides next actions based on available context.
+
+**Data Flow**: Blue rectangles show how data moves through the system - context updates, transcript management, and step counting.
+
+**Function Execution**: Light green rectangles show actual function calls that happen when the LLM decides they're needed.
+
+**LLM Interaction**: Purple nodes highlight where the LLM is directly involved in analysis and decision-making.
+
+**Loop Control**: The diagram shows the actual loop structure with `step_count < max_steps (10)` as the main loop condition, demonstrating how the LLM is called repeatedly until analysis is complete.
+
+### How the LLM Orchestrator Actually Works
+
+The LLM is not just a planner - it's the central orchestrator that controls the entire workflow through repeated calls, with a critical data flow mechanism:
+
+1. **LLM Call**: LLM receives tools specification, execution transcript, and context summary
+2. **Function Decision**: LLM decides which function to call next and what arguments to use
+3. **Argument Processing**: System replaces context key references with actual data from previous results
+4. **Function Execution**: Selected function runs with processed arguments and returns result
+5. **Context Storage**: Result is stored in context dictionary using function name as key
+6. **Transcript Update**: Function call, result, and context summary are added to execution transcript
+7. **Repeat**: Steps 1-6 repeat until LLM decides to return final result
+
+**Key Innovation - Context-Aware Argument Passing**:
+The LLM can pass context keys as function arguments, and the system automatically replaces them with actual data:
+
+```
+LLM says: load_prices(ticker="validated_ticker")
+System sees: "validated_ticker" is a context key
+System replaces: load_prices(ticker="AAPL")  // Uses actual data from context
+```
+
+**Real Example Flow**:
+```
+Iteration 1: LLM calls ddgs_search("Apple stock") 
+           → Context: {'ddgs_search': [search_results]}
+
+Iteration 2: LLM calls validate_ticker("Apple stock")
+           → Context: {'ddgs_search': [...], 'validate_ticker': 'AAPL'}
+
+Iteration 3: LLM calls get_company_info(ticker="validate_ticker")
+           → System replaces: get_company_info(ticker="AAPL")
+           → Context: {..., 'get_company_info': {company_data}}
+
+Iteration 4: LLM calls load_prices(ticker="validate_ticker", days=30)
+           → System replaces: load_prices(ticker="AAPL", days=30)
+           → Context: {..., 'load_prices': [price_data]}
+
+Iteration 5: LLM calls compute_indicators(indicator_data="load_prices")
+           → System replaces: compute_indicators(indicator_data=[price_data])
+           → Context: {..., 'compute_indicators': [indicators]}
+
+Iteration 6: LLM calls detect_events(indicator_data="compute_indicators", threshold=2.0)
+           → System replaces: detect_events(indicator_data=[indicators], threshold=2.0)
+           → Context: {..., 'detect_events': [events]}
+
+Iteration 7: LLM calls build_report(ticker="validate_ticker", events="detect_events", 
+                                  forecasts="forecast_prices", company_info="get_company_info")
+           → System replaces all context keys with actual data
+           → Returns final analysis
+```
+
+This creates a true agentic loop where the LLM maintains state across multiple calls and can chain function outputs as inputs to subsequent functions, enabling complex data analysis workflows.
+
+### How LLM Orchestrates Functions
+
+The LLM serves as the central orchestrator in a continuous loop:
+
+1. **Iterative Planning**: LLM is called repeatedly (up to 10 times), each time seeing the complete execution history
+2. **Context-Aware Decisions**: Each LLM call has access to all previous function results via the context dictionary
+3. **Dynamic Function Selection**: LLM chooses the next function based on current state, not a predefined sequence
+4. **Result Integration**: Function outputs are stored in context and become available for subsequent LLM calls
+5. **Adaptive Termination**: LLM decides when to stop calling functions and return the final analysis
+
+**Critical Difference**: Unlike simple function chaining, the LLM maintains state across multiple calls and can adapt its strategy based on intermediate results, errors, or unexpected data.
 
 ## 🚀 Features
 

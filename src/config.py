@@ -342,7 +342,8 @@ class AppConfig:
 
         # Logging configuration
         if self.logging.level:
-            env_vars["LOG_LEVEL"] = self.logging.level.value
+            level_value = self.logging.level.value if hasattr(self.logging.level, 'value') else self.logging.level
+            env_vars["LOG_LEVEL"] = level_value
 
         # Feature flags
         flag_mappings = {
@@ -407,9 +408,10 @@ def setup_logging(config: Optional[LoggingConfig] = None) -> None:
     if config is None:
         config = get_config().logging
 
-    # Configure root logger
+    # Configure root logger - handle both enum and string values
+    level_value = config.level.value if hasattr(config.level, 'value') else config.level
     logging.basicConfig(
-        level=getattr(logging, config.level.value),
+        level=getattr(logging, level_value.upper()),
         format=config.format,
         force=True
     )
@@ -424,7 +426,10 @@ def setup_logging(config: Optional[LoggingConfig] = None) -> None:
             backupCount=config.backup_count
         )
         file_handler.setFormatter(logging.Formatter(config.format))
-        file_handler.setLevel(getattr(logging, config.level.value))
+        
+        # Handle both enum and string values for file handler level
+        level_value = config.level.value if hasattr(config.level, 'value') else config.level
+        file_handler.setLevel(getattr(logging, level_value.upper()))
 
         # Add handler to root logger
         logging.getLogger().addHandler(file_handler)

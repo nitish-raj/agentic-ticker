@@ -12,18 +12,22 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-# Load environment variables BEFORE any other imports that might need them
+# Load configuration from config.yaml
 try:
-    from dotenv import load_dotenv, find_dotenv
-    # Load .env file with override=True to ensure environment variables are set
-    env_path = find_dotenv()
-    if env_path:
-        print(f"Loading .env file from: {env_path}")
-        load_dotenv(env_path, override=True)
-    else:
-        print("No .env file found, relying on system environment variables")
-except ImportError:
-    print("python-dotenv not available, relying on system environment variables")
+    import importlib.util
+    config_path = project_root / "src" / "config.py"
+    spec = importlib.util.spec_from_file_location("app_config", config_path)
+    if spec is None:
+        raise ImportError(f"Could not load config module from {config_path}")
+    config_module = importlib.util.module_from_spec(spec)
+    if spec.loader is None:
+        raise ImportError("Config module loader not available")
+    spec.loader.exec_module(config_module)
+    config = config_module.get_config()
+    print("Configuration loaded from config.yaml")
+except Exception as e:
+    print(f"Failed to load configuration: {e}")
+    sys.exit(1)
 
 # Enable compatibility mode
 os.environ['COMPATIBILITY_ENABLED'] = 'true'
@@ -44,39 +48,14 @@ Orchestrator = None  # Initialize to None
 # Import real orchestrator when not in mock mode
 if not MOCK_MODE:
     try:
-        # Check if Gemini API key is available before importing
-        gemini_api_key = os.getenv("GEMINI_API_KEY")
-        if not gemini_api_key:
-            print("⚠️  GEMINI_API_KEY not found in environment variables")
-            print("⚠️  Checking configuration system...")
-            
-            # Try to check config system
-            try:
-                # Import config module directly to avoid import issues
-                import importlib.util
-                config_path = project_root / "src" / "config.py"
-                if config_path.exists():
-                    spec = importlib.util.spec_from_file_location("config", config_path)
-                    if spec is not None:
-                        config_module = importlib.util.module_from_spec(spec)
-                        if spec.loader is not None:
-                            spec.loader.exec_module(config_module)
-                            
-                            config = config_module.get_config()
-                            gemini_config = config.gemini
-                            if gemini_config.api_key:
-                                gemini_api_key = gemini_config.api_key
-                                print("✅ Gemini API key found in configuration")
-                            else:
-                                print("❌ Gemini API key not found in configuration")
-                        else:
-                            print("❌ Configuration module loader not available")
-                    else:
-                        print("❌ Could not create configuration module spec")
-                else:
-                    print(f"❌ Configuration file not found at {config_path}")
-            except Exception as config_error:
-                print(f"❌ Configuration system error: {config_error}")
+        # Check if Gemini API key is available from config
+        gemini_api_key = None
+        if config and config.gemini and config.gemini.api_key:
+            gemini_api_key = config.gemini.api_key
+            print("✅ Gemini API key found in configuration")
+        else:
+            print("❌ Gemini API key not found in configuration")
+            print("💡 Tip: Edit config.yaml and add your Gemini API key")
         
         if gemini_api_key:
             print("✅ Gemini API key is available, proceeding with real orchestrator")
@@ -84,7 +63,7 @@ if not MOCK_MODE:
             print("✅ Real Orchestrator imported successfully")
         else:
             print("❌ No Gemini API key found - falling back to mock mode")
-            print("💡 Tip: Create a .env file with GEMINI_API_KEY=<your_key>")
+            print("💡 Tip: Edit config.yaml and add your Gemini API key")
             MOCK_MODE = True
             
     except ImportError as e:

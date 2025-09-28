@@ -12,11 +12,11 @@ A demonstration of Agentic AI principles through a stock and cryptocurrency anal
 # 1. Make launcher executable
 chmod +x launch.sh
 
-# 2. Run setup (installs dependencies, creates .env file)
+# 2. Run setup (installs dependencies, creates config.yaml file)
 ./launch.sh -s
 
-# 3. Edit .env with your Google Gemini API key
-nano .env
+# 3. Edit config.yaml with your Google Gemini API key
+nano config.yaml
 
 # 4. Start the application
 ./launch.sh
@@ -31,10 +31,12 @@ For more launcher options, see [QUICK_START.md](QUICK_START.md) and [LAUNCHER_RE
 ### Manual Setup (Alternative)
 
 ```bash
-# Set your API key
-export GEMINI_API_KEY="your-api-key-here"
+# Option A: Using config.yaml (Recommended)
+# Edit config.yaml with your API key, then run:
+streamlit run agentic_ticker.py
 
-# Run the Streamlit app
+# Option B: Using Environment Variables (Legacy)
+export GEMINI_API_KEY="your-api-key-here"
 streamlit run agentic_ticker.py
 
 # Or run the FastAPI backend
@@ -352,8 +354,12 @@ The LLM serves as the central orchestrator in a continuous loop:
    cd agentic-ticker
    ```
 
-2. **Set up environment variables:**
+2. **Set up configuration:**
    ```bash
+   # Option A: Using config.yaml (Recommended)
+   # Edit config.yaml with your Google Gemini API key
+   
+   # Option B: Using Environment Variables (Legacy)
    cp .env.example .env
    # Edit .env with your Google Gemini API key
    ```
@@ -475,7 +481,38 @@ pytest tests/test_services.py
 
 ## 🔧 Configuration
 
-### Environment Variables
+### Primary Configuration: config.yaml (Recommended)
+
+The application now uses `config.yaml` as the primary configuration method:
+
+```yaml
+# Gemini API Configuration
+gemini:
+  api_key: "your-api-key"
+  model: "gemini-2.5-flash-lite"
+  api_base: "https://generativelanguage.googleapis.com/v1beta"
+  temperature: 0.2
+  max_tokens: 8192
+  timeout: 120
+
+# Analysis Parameters
+analysis:
+  default_days: 30
+  default_threshold: 2.0
+  default_forecast_days: 5
+  max_analysis_steps: 10
+
+# Feature Flags
+feature_flags:
+  enable_web_search: true
+  enable_crypto_analysis: true
+  enable_stock_analysis: true
+  enable_forecasting: true
+```
+
+### Environment Variables (Legacy Support)
+
+For backward compatibility, environment variables are still supported:
 
 | Variable | Description | Required |
 |----------|-------------|----------|
@@ -488,11 +525,11 @@ pytest tests/test_services.py
 | `COMPATIBILITY_WARNINGS` | Show deprecation warnings | No (default: true) |
 | `ENABLE_*` | Feature flags for various components | No (default: true for most) |
 
-### Configuration Files
+### Configuration Files (Alternative)
 
-The system supports both JSON and YAML configuration files:
+The system also supports JSON configuration files for backward compatibility:
 
-**config.json or config.yaml:**
+**config.json:**
 ```json
 {
   "gemini": {

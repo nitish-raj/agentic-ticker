@@ -32,7 +32,7 @@ class TestValidateTicker:
         mock_ticker.return_value = mock_ticker_instance
         
         result = validate_ticker("BTC")
-        assert result == "BTC"
+        assert result == "BTC-USD"
     
     @patch('src.services.requests.post')
     @patch('src.services.yf.Ticker')

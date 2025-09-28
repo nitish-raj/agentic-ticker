@@ -19,8 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_NAME="Agentic Ticker"
 VENV_DIR="${SCRIPT_DIR}/.venv"
 REQUIREMENTS_FILE="${SCRIPT_DIR}/requirements.txt"
-ENV_FILE="${SCRIPT_DIR}/.env"
-ENV_EXAMPLE="${SCRIPT_DIR}/.env.example"
+CONFIG_FILE="${SCRIPT_DIR}/config.yaml"
 STREAMLIT_APP="${SCRIPT_DIR}/agentic_ticker.py"
 FASTAPI_APP="${SCRIPT_DIR}/src/main.py"
 
@@ -58,15 +57,15 @@ ${GREEN}Examples:${NC}
   ./launch.sh -p 8502                  # Custom port
   ./launch.sh --host 0.0.0.0           # Bind to all interfaces
 
-${GREEN}Environment:${NC}
-  GEMINI_API_KEY        Required for the application to work
-  GEMINI_MODEL          Optional: Gemini model to use
-  COINGECKO_DEMO_API_KEY Optional: For crypto data
+${GREEN}Configuration:${NC}
+   config.yaml           Required configuration file with API keys
+   - gemini.api_key     Required: Google Gemini API key
+   - coingecko.demo_api_key Optional: For crypto data
 
 ${GREEN}Quick Start:${NC}
-  1. Run: ./launch.sh -s              # Setup environment
-  2. Edit .env file with your API keys
-  3. Run: ./launch.sh                 # Start the application
+   1. Run: ./launch.sh -s              # Setup environment
+   2. Edit config.yaml with your API keys
+   3. Run: ./launch.sh                 # Start the application
 
 EOF
 }
@@ -184,46 +183,28 @@ install_dependencies() {
     log_info "Dependencies installed successfully!"
 }
 
-# Setup environment file
-setup_env() {
-    if [[ ! -f "$ENV_FILE" ]]; then
-        if [[ -f "$ENV_EXAMPLE" ]]; then
-            log_info "Creating .env file from example..."
-            cp "$ENV_EXAMPLE" "$ENV_FILE"
-            log_warn "Please edit $ENV_FILE with your API keys before running the application"
-        else
-            log_warn ".env.example not found, creating minimal .env file..."
-            cat > "$ENV_FILE" << EOF
-# Google Gemini API Key (required)
-GEMINI_API_KEY=<YOUR_GEMINI_API_KEY>
-
-# Gemini Model (optional)
-GEMINI_MODEL=gemini-2.5-flash-lite
-
-# CoinGecko API Key (optional)
-COINGECKO_DEMO_API_KEY=<YOUR_COINGECKO_API_KEY>
-
-# Logging Level (optional)
-LOG_LEVEL=INFO
-EOF
-            log_warn "Please edit $ENV_FILE with your API keys before running the application"
-        fi
+# Setup configuration file
+setup_config() {
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+        log_error "config.yaml not found. Please create config.yaml with your API keys."
+        log_info "See documentation for configuration format."
+        exit 1
     else
-        log_info ".env file already exists"
+        log_info "config.yaml found"
     fi
 }
 
-# Check environment
-check_env() {
-    if [[ ! -f "$ENV_FILE" ]]; then
-        log_error ".env file not found. Run setup first: ./launch.sh -s"
+# Check configuration
+check_config() {
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+        log_error "config.yaml not found. Please create config.yaml with your API keys."
         exit 1
     fi
     
-    # Check for required API key
-    if ! grep -q "GEMINI_API_KEY=" "$ENV_FILE" || grep -q "GEMINI_API_KEY=<" "$ENV_FILE"; then
-        log_error "GEMINI_API_KEY not set in .env file"
-        log_info "Please edit $ENV_FILE and add your Google Gemini API key"
+    # Check for required API key in config.yaml
+    if ! grep -q "api_key:" "$CONFIG_FILE" || grep -q "your-gemini-api-key-here" "$CONFIG_FILE"; then
+        log_error "Gemini API key not set in config.yaml"
+        log_info "Please edit config.yaml and add your Google Gemini API key"
         exit 1
     fi
 }
@@ -415,19 +396,19 @@ EOF
     # Setup virtual environment
     setup_venv
     
-    # Setup environment
-    setup_env
+    # Setup configuration
+    setup_config
     
     if [[ "$SETUP_ONLY" == "true" ]]; then
         log_info "Setup completed!"
         log_info "Next steps:"
-        log_info "  1. Edit $ENV_FILE with your API keys"
+        log_info "  1. Edit $CONFIG_FILE with your API keys"
         log_info "  2. Run: ./launch.sh"
         exit 0
     fi
     
-    # Check environment
-    check_env
+    # Check configuration
+    check_config
     
     # Install dependencies
     install_dependencies

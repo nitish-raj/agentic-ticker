@@ -1,269 +1,827 @@
+#!/usr/bin/env python3
+"""
+Agentic Ticker - Streamlit Application
+A working Streamlit application that handles import issues gracefully.
+"""
+
+import sys
+import os
+from pathlib import Path
+
+# Add project root to Python path FIRST
+project_root = Path(__file__).parent
+sys.path.insert(0, str(project_root))
+
+# Load environment variables BEFORE any other imports that might need them
+try:
+    from dotenv import load_dotenv, find_dotenv
+    # Load .env file with override=True to ensure environment variables are set
+    env_path = find_dotenv()
+    if env_path:
+        print(f"Loading .env file from: {env_path}")
+        load_dotenv(env_path, override=True)
+    else:
+        print("No .env file found, relying on system environment variables")
+except ImportError:
+    print("python-dotenv not available, relying on system environment variables")
+
+# Enable compatibility mode
+os.environ['COMPATIBILITY_ENABLED'] = 'true'
+
+# Now import other modules that might depend on environment variables
 import streamlit as st
-from dotenv import load_dotenv, find_dotenv
-
-# Import from src modules
-from src.orchestrator import Orchestrator
-from src.ui_components import create_price_chart, create_forecast_chart
-from src.json_helpers import _format_json_for_display
-
-load_dotenv(find_dotenv(), override=False)
-
+import pandas as pd
+from datetime import datetime, timedelta
 
 # ---------------------
-# Helper Functions
+# Compatibility Layer
 # ---------------------
 
-def clear_all_results():
-    """Clear all analysis results from session state"""
-    keys_to_clear = [
-        'price_data', 'indicator_data', 'events', 'forecasts', 
-        'report', 'company_info', 'crypto_info', 'web_search_results', 'validated_ticker', 'analysis_running', 'analysis_completed', 'analysis_params'
+# Use real API calls instead of mock data
+MOCK_MODE = False
+Orchestrator = None  # Initialize to None
+
+# Import real orchestrator when not in mock mode
+if not MOCK_MODE:
+    try:
+        # Check if Gemini API key is available before importing
+        gemini_api_key = os.getenv("GEMINI_API_KEY")
+        if not gemini_api_key:
+            print("⚠️  GEMINI_API_KEY not found in environment variables")
+            print("⚠️  Checking configuration system...")
+            
+            # Try to check config system
+            try:
+                # Import config module directly to avoid import issues
+                import importlib.util
+                config_path = project_root / "src" / "config.py"
+                if config_path.exists():
+                    spec = importlib.util.spec_from_file_location("config", config_path)
+                    if spec is not None:
+                        config_module = importlib.util.module_from_spec(spec)
+                        if spec.loader is not None:
+                            spec.loader.exec_module(config_module)
+                            
+                            config = config_module.get_config()
+                            gemini_config = config.gemini
+                            if gemini_config.api_key:
+                                gemini_api_key = gemini_config.api_key
+                                print("✅ Gemini API key found in configuration")
+                            else:
+                                print("❌ Gemini API key not found in configuration")
+                        else:
+                            print("❌ Configuration module loader not available")
+                    else:
+                        print("❌ Could not create configuration module spec")
+                else:
+                    print(f"❌ Configuration file not found at {config_path}")
+            except Exception as config_error:
+                print(f"❌ Configuration system error: {config_error}")
+        
+        if gemini_api_key:
+            print("✅ Gemini API key is available, proceeding with real orchestrator")
+            from src.orchestrator import Orchestrator
+            print("✅ Real Orchestrator imported successfully")
+        else:
+            print("❌ No Gemini API key found - falling back to mock mode")
+            print("💡 Tip: Create a .env file with GEMINI_API_KEY=<your_key>")
+            MOCK_MODE = True
+            
+    except ImportError as e:
+        print(f"❌ Failed to import real Orchestrator: {e}")
+        print("⚠️  Falling back to mock mode")
+        MOCK_MODE = True
+    except Exception as e:
+        print(f"❌ Error during orchestrator setup: {e}")
+        print("⚠️  Falling back to mock mode")
+        MOCK_MODE = True
+
+# ---------------------
+# Compatibility Layer
+# ---------------------
+
+# Use real API calls instead of mock data
+MOCK_MODE = False
+
+def create_mock_orchestrator():
+    """Create a mock orchestrator that simulates the AI analysis"""
+    class MockOrchestrator:
+        def run(self, ticker_input, days, threshold, forecast_days, on_event=None):
+            """Simulate the agentic AI analysis process"""
+            
+            # Simulate the step-by-step process
+            steps = [
+                ("Initializing Analysis", "Setting up analysis parameters"),
+                ("Web Search", f"Searching for information about {ticker_input}"),
+                ("Asset Validation", f"Validating ticker/asset: {ticker_input}"),
+                ("Data Collection", "Collecting historical price data"),
+                ("Technical Analysis", "Computing technical indicators (RSI, MACD, Bollinger Bands)"),
+                ("Event Detection", f"Detecting significant price events (threshold: {threshold}%)"),
+                ("Price Forecasting", f"Generating {forecast_days}-day price forecast"),
+                ("Report Generation", "Compiling comprehensive analysis report"),
+                ("Analysis Complete", "Finalizing results")
+            ]
+            
+            for i, (step_name, description) in enumerate(steps):
+                if on_event:
+                    on_event({
+                        'type': 'info' if i == 0 else 'call' if i < len(steps) - 1 else 'final',
+                        'name': step_name,
+                        'message': description,
+                        'step': i + 1
+                    })
+                
+                # Simulate processing time
+                import time
+                time.sleep(0.3)
+            
+            return steps
+    
+    return MockOrchestrator()
+
+def create_mock_data():
+    """Create realistic mock data for demonstration"""
+    import numpy as np
+    
+    # Generate date range
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=30)
+    dates = pd.date_range(start=start_date, end=end_date, freq='D')
+    
+    # Generate mock price data with realistic patterns
+    np.random.seed(42)  # For reproducible results
+    base_price = 150.0
+    trend = np.linspace(0, 10, len(dates))
+    noise = np.random.normal(0, 2, len(dates))
+    prices = base_price + trend + np.cumsum(noise)
+    
+    # Ensure positive prices
+    prices = np.maximum(prices, base_price * 0.8)
+    
+    price_data = []
+    for i, date in enumerate(dates):
+        price_data.append({
+            'date': date.strftime('%Y-%m-%d'),
+            'open': prices[i] * 0.99,
+            'high': prices[i] * 1.02,
+            'low': prices[i] * 0.98,
+            'close': prices[i],
+            'volume': np.random.randint(1000000, 5000000)
+        })
+    
+    # Generate technical indicators
+    indicator_data = []
+    for i, date in enumerate(dates):
+        indicator_data.append({
+            'date': date.strftime('%Y-%m-%d'),
+            'rsi': 50 + np.random.normal(0, 15),
+            'macd': np.random.normal(0, 1),
+            'bollinger_upper': prices[i] * 1.05,
+            'bollinger_lower': prices[i] * 0.95,
+            'bollinger_position': 'Middle' if i % 3 == 0 else 'Upper' if i % 3 == 1 else 'Lower'
+        })
+    
+    # Generate events
+    events = []
+    event_dates = [dates[i] for i in [5, 12, 18, 25]]
+    event_descriptions = [
+        "Strong earnings report exceeded expectations",
+        "Market volatility due to economic news",
+        "Sector rotation into technology stocks",
+        "Analyst upgrade with increased price target"
     ]
-    for key in keys_to_clear:
-        st.session_state.pop(key, None)
+    
+    for i, (date, description) in enumerate(zip(event_dates, event_descriptions)):
+        events.append({
+            'date': date.strftime('%Y-%m-%d'),
+            'description': description,
+            'magnitude': round(np.random.uniform(1.5, 4.0), 1),
+            'type': 'positive' if i % 2 == 0 else 'negative'
+        })
+    
+    # Generate forecasts
+    forecast_dates = pd.date_range(start=end_date + timedelta(days=1), periods=5, freq='D')
+    current_price = prices[-1]
+    forecast_prices = current_price + np.cumsum(np.random.normal(0.5, 1, 5))
+    
+    forecasts = []
+    for i, (date, price) in enumerate(zip(forecast_dates, forecast_prices)):
+        forecasts.append({
+            'date': date.strftime('%Y-%m-%d'),
+            'predicted_price': round(price, 2),
+            'confidence': f"{85 + np.random.randint(-10, 10)}%",
+            'trend': 'Bullish' if price > current_price else 'Bearish' if price < current_price else 'Neutral'
+        })
+    
+    return price_data, indicator_data, events, forecasts
 
+def check_api_key_availability():
+    """Check if Gemini API key is available from environment or config"""
+    # Check environment variables first
+    api_key = os.getenv("GEMINI_API_KEY")
+    if api_key:
+        return True, "environment"
+    
+    # Check configuration system
+    try:
+        import importlib.util
+        config_path = project_root / "src" / "config.py"
+        if config_path.exists():
+            spec = importlib.util.spec_from_file_location("config", config_path)
+            if spec is not None:
+                config_module = importlib.util.module_from_spec(spec)
+                if spec.loader is not None:
+                    spec.loader.exec_module(config_module)
+                    config = config_module.get_config()
+                    if config.gemini.api_key:
+                        return True, "configuration"
+    except Exception:
+        pass
+    
+    return False, None
+
+def create_mock_report(ticker, days, threshold, forecast_days):
+    """Create a comprehensive mock analysis report"""
+    
+    return {
+        'asset_info': {
+            'type': 'stock',
+            'company_name': f'{ticker} Corporation',
+            'sector': 'Technology',
+            'market_cap': '$2.8T',
+            'description': f'{ticker} is a leading technology company known for innovation and strong financial performance.'
+        },
+        'price_analysis': {
+            'current_price': '$175.50',
+            'price_change_30d': '+5.2%',
+            'volatility': 'Medium (2.1%)',
+            'trading_volume': '45.2M shares',
+            'market_trend': 'Slightly Bullish'
+        },
+        'technical_indicators': {
+            'rsi': '65.3 (Neutral)',
+            'macd_signal': 'Bullish Crossover',
+            'bollinger_position': 'Upper Band (Strong)',
+            'moving_average_50d': '$168.20',
+            'moving_average_200d': '$155.80',
+            'support_level': '$165.00',
+            'resistance_level': '$180.00'
+        },
+        'events': [
+            {'date': '2024-01-15', 'description': 'Strong earnings report exceeded expectations', 'magnitude': 3.2, 'impact': 'positive'},
+            {'date': '2024-01-20', 'description': 'Market volatility due to economic news', 'magnitude': -1.8, 'impact': 'negative'},
+            {'date': '2024-01-25', 'description': 'Sector rotation into technology stocks', 'magnitude': 2.1, 'impact': 'positive'}
+        ],
+        'forecast': {
+            'predicted_price_5d': '$178.25',
+            'confidence': '72%',
+            'trend': 'Slightly Bullish',
+            'expected_range': '$172.00 - $184.50',
+            'key_factors': ['Strong technical indicators', 'Positive market sentiment', 'Sector momentum']
+        },
+        'web_search_results': [
+            {
+                'title': f'{ticker} Stock Analysis - Strong Buy Rating',
+                'href': '#',
+                'content': f'Recent analysis shows {ticker} maintaining strong fundamentals with positive outlook for Q1 earnings...',
+                'source': 'Financial News',
+                'date': '2024-01-28'
+            },
+            {
+                'title': f'{ticker} Technology Innovation Drives Growth',
+                'href': '#',
+                'content': f'{ticker} continues to invest heavily in R&D, positioning itself for long-term growth in emerging markets...',
+                'source': 'Tech Weekly',
+                'date': '2024-01-27'
+            }
+        ],
+        'analysis_summary': {
+            'overall_rating': 'BUY',
+            'risk_level': 'Medium',
+            'investment_horizon': 'Medium-term (3-6 months)',
+            'key_strengths': ['Strong technical position', 'Positive sector trends', 'Solid fundamentals'],
+            'key_risks': ['Market volatility', 'Economic uncertainty', 'Sector rotation'],
+            'recommendation': 'Consider accumulating on dips with stop-loss at $165'
+        }
+    }
 
 # ---------------------
-# Main Application
+# Streamlit App
 # ---------------------
 
 def main():
-    st.set_page_config(page_title="Agentic-Ticker (Gemini)", page_icon="📈", layout="wide")
+    # Page configuration
+    st.set_page_config(
+        page_title="Agentic Ticker 🤖",
+        page_icon="📈",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
     
-    # Centered header section
-    col_header_left, col_header_center, col_header_right = st.columns([1, 3, 1])
-    with col_header_center:
-        st.title("Agentic-Ticker 📈 - Mocking Agentic AI", anchor="header", width='content')
-        st.markdown("A tool to mock up an agentic AI that analyzes stock and cryptocurrency tickers using Google Gemini and various data sources.")
+    # Custom CSS for better styling
+    st.markdown("""
+        <style>
+        .main-header {
+            text-align: center;
+            color: #1f77b4;
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+        }
+        .sub-header {
+            text-align: center;
+            color: #666;
+            font-size: 1.1rem;
+            margin-bottom: 2rem;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+        .status-demo {
+            background-color: #e3f2fd;
+            color: #1976d2;
+            border: 1px solid #bbdefb;
+        }
+        .metric-card {
+            background-color: #f8f9fa;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin: 0.5rem 0;
+            border-left: 4px solid #1f77b4;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    # Header section
+    st.markdown('<div class="main-header">🤖 Agentic Ticker</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Intelligent Stock & Cryptocurrency Analysis powered by Agentic AI</div>', unsafe_allow_html=True)
+    
+    # Status indicator
+    is_mock_mode = MOCK_MODE or st.session_state.get('mock_mode_override', False)
+    if is_mock_mode:
+        st.markdown('<div class="status-badge status-demo">📊 Demo Mode - Educational Purpose Only</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="status-badge" style="background-color: #e8f5e8; color: #2e7d32; border: 1px solid #c8e6c9;">🚀 Live Mode - Real API Data</div>', unsafe_allow_html=True)
+    
+    # Disclaimer
+    with st.expander("⚠️ Important Disclaimer", expanded=False):
+        st.warning("""
+        **Educational Purpose Only**: This tool demonstrates Agentic AI principles and is **not intended for actual financial decisions**. 
         
-        # Add disclaimer
-        st.warning("⚠️ **Disclaimer**: This tool is designed to demonstrate how Agentic AI works and is **not intended for actual financial analysis or investment decisions**. The results are for educational purposes only.")
-
-    # Centered parameters section - same width as header
+        **What it does**:
+        - Simulates AI-powered financial analysis
+        - Demonstrates agentic workflow orchestration
+        - Shows how AI can chain multiple analysis steps
+        - Provides educational insights into AI decision-making
+        
+        **What it doesn't do**:
+        - Provide real financial advice
+        - Make actual predictions
+        - Replace professional financial analysis
+        - Guarantee investment outcomes
+        """)
+    
+    # How it works section
+    with st.expander("🧠 How Agentic AI Works", expanded=False):
+        st.markdown("""
+        This system demonstrates **Agentic AI** where the AI (Google Gemini) autonomously:
+        
+        1. **Analyzes** your input to understand what asset you want to analyze
+        2. **Decides** which functions to call and in what order
+        3. **Orchestrates** a sequence of analysis steps:
+           - Web search for context
+           - Asset validation and classification
+           - Historical data collection
+           - Technical indicator calculation
+           - Event detection
+           - Price forecasting
+           - Report generation
+        4. **Adapts** its strategy based on available data and results
+        5. **Explains** its reasoning for each decision
+        
+        The AI doesn't just follow a script - it **thinks** through the analysis process!
+        """)
+    
+    # Centered parameters section
     col_params_left, col_params_center, col_params_right = st.columns([1, 3, 1])
 
     with col_params_center:
-        st.header("Analysis Parameters")
-        ticker = st.text_input("Stock/Crypto Ticker or a description of the asset", placeholder="e.g. AAPL, BTC, or 'Apple Inc. stock' or 'Largest cryptocurrency by market cap'")
-        days = st.slider("Analysis Period (days)", 5, 365, 30)
-        threshold = st.slider("Price Event Threshold (%)", 0.5, 10.0, 2.0)
-        forecast_days = st.slider("Forecast Period (days)", 1, 30, 5)
+        st.header("🎯 Analysis Parameters")
+        
+        ticker = st.text_input(
+            "Stock/Crypto Ticker or Asset Description",
+            placeholder="e.g. AAPL, BTC, 'Apple Inc. stock', 'Largest cryptocurrency'",
+            help="Enter a ticker symbol, company name, or description of the asset you want to analyze"
+        )
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            days = st.slider("Analysis Period (days)", 5, 365, 30, help="How many days of historical data to analyze")
+            threshold = st.slider("Price Event Threshold (%)", 0.5, 10.0, 2.0, 0.1, help="Minimum price change to consider as significant event")
+        with col2:
+            forecast_days = st.slider("Forecast Period (days)", 1, 30, 5, help="How many days ahead to forecast")
         
         col_analyze, col_reset = st.columns([3, 1])
         
         with col_analyze:
-            if st.button("🚀 Analyze", type="primary"):
-                # Clear all previous results when running a new analysis
-                clear_all_results()
-                # Store parameters and set analysis running flag
-                st.session_state.analysis_params = {
-                    'ticker': ticker,
-                    'days': days,
-                    'threshold': threshold,
-                    'forecast_days': forecast_days
-                }
-                st.session_state.analysis_running = True
-                st.rerun()
+            analyze_button = st.button("🚀 Analyze", type="primary", use_container_width=True)
         
         with col_reset:
-            if st.button("Reset"):
-                # Clear all results and reset to initial state
-                clear_all_results()
-                st.rerun()
+            reset_button = st.button("🔄 Reset", use_container_width=True)
+        
+        if reset_button:
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
 
-    # Bottom section for logs and report
-    col_logs, col_report = st.columns(2)
+    # Analysis execution section
+    if analyze_button and ticker:
+        # Store parameters and set analysis running flag
+        st.session_state.analysis_params = {
+            'ticker': ticker,
+            'days': days,
+            'threshold': threshold,
+            'forecast_days': forecast_days
+        }
+        st.session_state.analysis_running = True
+        st.rerun()
 
-    with col_logs:
-        st.header("Analysis Logs")
+    if st.session_state.get('analysis_running', False):
+        params = st.session_state.analysis_params
         
-        # Create a placeholder for logs
-        logs_placeholder = st.empty()
+        # Create progress containers
+        progress_container = st.container()
+        status_container = st.container()
         
-        # Run analysis if triggered
-        if st.session_state.get('analysis_running', False):
-            params = st.session_state.analysis_params
-            
-            with logs_placeholder.container():
-                status = st.status("Running agent loop…", state="running", expanded=True)
-                try:
-                    orch = Orchestrator()
-                    def on_event(e):
-                        kind = e.get("type")
-                        if kind == "info":
-                            status.write(e.get("message"))
-                        elif kind == "planning":
-                            # Skip planning display - will be combined with call event
-                            pass
-                        elif kind == "classification":
-                            asset_type = e.get("asset_type", "unknown")
-                            input_text = e.get("input", "")
-                            reasoning = e.get("reasoning", "")
-                            # Display classification with appropriate emoji and color
-                            if asset_type == "stock":
-                                emoji = "📈"
-                                color = "blue"
-                            elif asset_type == "crypto":
-                                emoji = "₿"
-                                color = "orange"
-                            else:
-                                emoji = "❓"
-                                color = "gray"
-                            msg = f":{color}[**Asset Classification:** {emoji} Classified '{input_text}' as **{asset_type.upper()}**]"
-                            status.write(msg)
-                            if reasoning:
-                                status.write(f":{color}[Reasoning: {reasoning}]")
-                        elif kind == "call":
-                            args = e.get('args', {})
-                            formatted_args = _format_json_for_display(args)
-                            func_name = e.get('name')
-                            
-                            # Create agentic thinking message based on function name
-                            if func_name == "ddgs_search":
-                                query = args.get('query', 'unknown asset')
-                                msg = f":red[**Step {e.get('step')}:**] Web search needed: I need to gather information about '{query}' to better understand this asset. so lets call `{func_name}`"
-                            elif func_name == "validate_ticker":
-                                input_text = args.get('input_text', 'unknown asset')
-                                msg = f":red[**Step {e.get('step')}:**] Validating ticker: I need to validate and extract the correct ticker symbol from '{input_text}'. so lets call `{func_name}`"
-                            
-                            elif func_name == "get_company_info":
-                                msg = f":red[**Step {e.get('step')}:**] Getting company details: Now that I have the ticker, I'll gather comprehensive company information. so lets call `{func_name}`"
-                            elif func_name == "get_crypto_info":
-                                msg = f":red[**Step {e.get('step')}:**] Getting crypto details: Now that I have the crypto symbol, I'll gather cryptocurrency-specific information. so lets call `{func_name}`"
-                            elif func_name == "load_prices":
-                                msg = f":red[**Step {e.get('step')}:**] Loading price data: I need historical price data to perform technical analysis. so lets call `{func_name}`"
-                            elif func_name == "load_crypto_prices":
-                                msg = f":red[**Step {e.get('step')}:**] Loading crypto price data: I need historical cryptocurrency price data to perform technical analysis. so lets call `{func_name}`"
-                            elif func_name == "compute_indicators":
-                                msg = f":red[**Step {e.get('step')}:**] Computing technical indicators: I'll calculate RSI, MACD, and Bollinger Bands for analysis. so lets call `{func_name}`"
-                            elif func_name == "detect_events":
-                                threshold = args.get('threshold', 2.0)
-                                msg = f":red[**Step {e.get('step')}:**] Detecting significant events: I'll identify important price movements based on the {threshold}% threshold. so lets call `{func_name}`"
-                            elif func_name == "forecast_prices":
-                                days = args.get('days', 7)
-                                msg = f":red[**Step {e.get('step')}:**] Generating price forecasts: I'll use ML models to predict price movements for the next {days} days. so lets call `{func_name}`"
-                            elif func_name == "build_report":
-                                msg = f":red[**Step {e.get('step')}:**] Building comprehensive report: I'll synthesize all gathered information into a final analysis report. so lets call `{func_name}`"
-                            else:
-                                msg = f":red[**Step {e.get('step')}:**] I need to call `{func_name}` to continue my analysis"
-                            
-                            status.write(msg)
-                            status.code(formatted_args, language='json')
-                        elif kind == "result":
-                            res = e.get('result')
-                            name = e.get('name')
-                                                                                
-                            # Show data directly without expander
-                            if isinstance(res, (list, dict)) and len(res) > 0:
-                                if isinstance(res, list):
-                                    # Show first 10 items
-                                    display_data = res[:10]
-                                    formatted_data = _format_json_for_display(display_data)
-                                    status.code(formatted_data, language='json')
-                                else:
-                                    formatted_data = _format_json_for_display(res)
-                                    status.code(formatted_data, language='json')
-                        elif kind == "final":
-                            status.update(label="Agent loop completed", state="complete")
-                    
-                    steps = orch.run(params['ticker'], params['days'], params['threshold'], params['forecast_days'], on_event=on_event)
-                    price_data, indicator_data, events, forecasts, report, company_info, crypto_info, web_search_results, validated_ticker = [], [], [], [], None, None, None, None, None
-                    for s in steps:
-                        if s['type'] == 'result':
-                            if s['name'] == 'load_prices':
-                                price_data = s['result']
-                            if s['name'] == 'load_crypto_prices':
-                                price_data = s['result']
-                            if s['name'] == 'compute_indicators':
-                                indicator_data = s['result']
-                            if s['name'] == 'detect_events':
-                                events = s['result']
-                            if s['name'] == 'forecast_prices':
-                                forecasts = s['result']
-                            if s['name'] == 'build_report':
-                                report = s['result']
-                            if s['name'] == 'get_company_info':
-                                company_info = s['result']
-                            if s['name'] == 'get_crypto_info':
-                                crypto_info = s['result']
-                            if s['name'] == 'ddgs_search':
-                                web_search_results = s['result']
-                            if s['name'] in ['validate_ticker']:
-                                validated_ticker = s['result']
-                    
-                    st.session_state.price_data = price_data
-                    st.session_state.indicator_data = indicator_data
-                    st.session_state.events = events
-                    st.session_state.forecasts = forecasts
-                    st.session_state.report = report
-                    st.session_state.company_info = company_info
-                    st.session_state.crypto_info = crypto_info
-                    st.session_state.web_search_results = web_search_results
-                    st.session_state.validated_ticker = validated_ticker or params['ticker']
-                    # Clear the analysis running flag and set completed flag
-                    st.session_state.analysis_running = False
-                    st.session_state.analysis_completed = True
-                    # Don't rerun here - let both logs and report show side by side
-                except Exception as e:
-                    status.update(label="Agent loop failed", state="error")
-                    st.error(str(e))
-                    # Clear the analysis running flag even on error
-                    st.session_state.analysis_running = False
-                    # Don't rerun on error either - let both logs and report show side by side
-        elif st.session_state.get('analysis_completed', False):
-            # Show completed logs
-            with logs_placeholder.container():
-                st.success("✅ Analysis completed successfully!")
-                st.info("Analysis logs are shown above. Results are displayed in the report section on the right.")
-        else:
-            logs_placeholder.info("Run an analysis to see logs here.")
-
-    with col_report:
-        st.header("Analysis Report")
+        with progress_container:
+            st.header("🔍 Analysis Progress")
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            step_container = st.empty()
         
-        # Check if we have results to display
-        has_results = all(key in st.session_state for key in ['price_data', 'indicator_data', 'events', 'forecasts', 'report'])
-        
-        if has_results and st.session_state.report:
-            # Display unified header with company/crypto name and validated ticker
-            company_info = st.session_state.get('company_info', {})
-            crypto_info = st.session_state.get('crypto_info', {})
-            validated_ticker = st.session_state.get('validated_ticker', st.session_state.get('analysis_params', {}).get('ticker', 'Unknown'))
-            
-            # Determine asset name based on available info
-            if crypto_info and crypto_info.get('name'):
-                asset_name = crypto_info.get('name')
-            elif company_info and company_info.get('company_name'):
-                asset_name = company_info.get('company_name')
+        # Initialize orchestrator with proper error handling
+        orchestrator = None
+        try:
+            if MOCK_MODE or Orchestrator is None:
+                orchestrator = create_mock_orchestrator()
+                print("🎯 Using mock orchestrator for demo mode")
             else:
-                asset_name = validated_ticker
+                # Check API key availability
+                api_key_available, source = check_api_key_availability()
                 
-            st.header(f"📊 Results for {asset_name} ({validated_ticker})")
-            st.markdown("---")  # Separator line
+                if api_key_available:
+                    orchestrator = Orchestrator()
+                    print(f"🚀 Real orchestrator initialized successfully (API key from {source})")
+                else:
+                    print("⚠️  API key not available, falling back to mock mode")
+                    print("💡 Tip: Create a .env file with GEMINI_API_KEY=<your_key>")
+                    orchestrator = create_mock_orchestrator()
+                    # Update the global MOCK_MODE for UI consistency
+                    st.session_state.mock_mode_override = True
+        except Exception as init_error:
+            print(f"❌ Failed to initialize orchestrator: {init_error}")
+            print("⚠️  Falling back to mock mode")
+            orchestrator = create_mock_orchestrator()
+            # Update the global MOCK_MODE for UI consistency
+            st.session_state.mock_mode_override = True
+        
+        # Event callback for progress updates
+        def on_event(event):
+            step = event.get('step', 0)
+            progress = min(step * 11, 100)  # 9 steps = ~11% each
+            progress_bar.progress(progress)
             
-            st.subheader("📈 Price Chart")
-            try:
-                price_fig = create_price_chart(st.session_state.price_data, st.session_state.indicator_data)
-                st.plotly_chart(price_fig)
-            except Exception as e:
-                st.warning(f"Chart unavailable: {e}")
-            
-            st.subheader("🔮 Price Forecasts")
-            if 'forecasts' in st.session_state:
-                try:
-                    forecast_fig = create_forecast_chart(st.session_state.forecasts)
-                    st.plotly_chart(forecast_fig)
-                except Exception as e:
-                    st.warning(f"Forecast chart unavailable: {e}")
-            
-            if 'report' in st.session_state and st.session_state.report:
-                report_content = st.session_state.report.get('content', 'No report content available.')
-                st.markdown(report_content)
+            if event['type'] == 'info':
+                message = event.get('message', 'Processing...')
+                status_text.info(f"ℹ️ {message}")
+            elif event['type'] == 'call':
+                func_name = event.get('name', 'Unknown function')
+                status_text.info(f"🔄 Calling {func_name}...")
+            elif event['type'] == 'result':
+                func_name = event.get('name', 'Function')
+                status_text.success(f"✅ {func_name} completed")
+            elif event['type'] == 'error':
+                error_msg = event.get('error', 'Unknown error')
+                status_text.error(f"❌ Error: {error_msg}")
+            elif event['type'] == 'final':
+                status_text.success("🎉 Analysis complete!")
+                progress_bar.progress(100)
+            elif event['type'] == 'planning':
+                status_text.info(f"🧠 Planning step {step}...")
             else:
-                st.info("No report available.")
-        else:
-            st.info("Run an analysis to see results here.")
+                # Handle any other event types
+                status_text.info(f"📊 Processing step {step}...")
+        
+        try:
+            # Run the analysis
+            with st.spinner(f"🧠 AI is analyzing {params['ticker']}..."):
+                steps = orchestrator.run(
+                    ticker_input=params['ticker'],
+                    days=params['days'],
+                    threshold=params['threshold'],
+                    forecast_days=params['forecast_days'],
+                    on_event=on_event
+                )
+            
+            # The real orchestrator already updates session state with actual data
+            # No need to generate mock data when using real APIs
+            if MOCK_MODE:
+                # Only generate mock data if we're in mock mode
+                price_data, indicator_data, events, forecasts = create_mock_data()
+                report = create_mock_report(
+                    params['ticker'], 
+                    params['days'], 
+                    params['threshold'], 
+                    params['forecast_days']
+                )
+                
+                # Store mock results in session state
+                st.session_state.price_data = price_data
+                st.session_state.indicator_data = indicator_data
+                st.session_state.events = events
+                st.session_state.forecasts = forecasts
+                st.session_state.report = report
+            # For real mode, the orchestrator's update_session_state() function 
+            # already populated the session state with real data
+            
+            # Mark analysis as completed
+            st.session_state.analysis_completed = True
+            st.session_state.analysis_running = False
+            st.rerun()
+            
+        except Exception as e:
+            st.error(f"Analysis failed: {str(e)}")
+            st.session_state.analysis_running = False
+            st.rerun()
 
+    # Results display section
+    if st.session_state.get('analysis_completed', False):
+        st.header("📊 Analysis Results")
+        
+        # Create tabs for different result types
+        tab_summary, tab_charts, tab_data, tab_report = st.tabs(["📋 Summary", "📈 Charts", "📊 Data", "📄 Full Report"])
+        
+        with tab_summary:
+            if st.session_state.get('report'):
+                report = st.session_state.report
+                
+                # Key metrics in columns
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    if 'price_analysis' in report:
+                        st.metric("Current Price", report['price_analysis']['current_price'])
+                        st.metric("30-Day Change", report['price_analysis']['price_change_30d'])
+                with col2:
+                    if 'technical_indicators' in report:
+                        st.metric("RSI", report['technical_indicators']['rsi'])
+                        st.metric("MACD Signal", report['technical_indicators']['macd_signal'])
+                with col3:
+                    if 'forecast' in report:
+                        st.metric("5-Day Forecast", report['forecast']['predicted_price_5d'])
+                        st.metric("Confidence", report['forecast']['confidence'])
+                
+                # Analysis summary
+                if 'analysis_summary' in report:
+                    summary = report['analysis_summary']
+                    st.subheader("🎯 Analysis Summary")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"**Overall Rating:** {summary.get('overall_rating', 'N/A')}")
+                        st.write(f"**Risk Level:** {summary.get('risk_level', 'N/A')}")
+                        st.write(f"**Investment Horizon:** {summary.get('investment_horizon', 'N/A')}")
+                    with col2:
+                        st.write(f"**Trend:** {summary.get('key_strengths', ['N/A'])[0] if summary.get('key_strengths') else 'N/A'}")
+                        st.write(f"**Key Factors:** {', '.join(summary.get('key_factors', ['N/A'])[:2])}")
+                    
+                    if 'recommendation' in summary:
+                        st.info(f"💡 **Recommendation:** {summary['recommendation']}")
+        
+        with tab_charts:
+            # Price chart
+            if st.session_state.get('price_data'):
+                try:
+                    import plotly.graph_objects as go
+                    
+                    df = pd.DataFrame(st.session_state.price_data)
+                    df['date'] = pd.to_datetime(df['date'])
+                    
+                    fig = go.Figure()
+                    fig.add_trace(go.Candlestick(
+                        x=df['date'],
+                        open=df['open'],
+                        high=df['high'],
+                        low=df['low'],
+                        close=df['close'],
+                        name='Price'
+                    ))
+                    fig.update_layout(
+                        title='Stock Price Chart',
+                        xaxis_title='Date',
+                        yaxis_title='Price ($)',
+                        template='plotly_white'
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                except ImportError:
+                    st.info("Plotly not available for charts. Install with: pip install plotly")
+            
+            # Forecast chart
+            if st.session_state.get('forecasts'):
+                try:
+                    import plotly.graph_objects as go
+                    
+                    df = pd.DataFrame(st.session_state.forecasts)
+                    df['date'] = pd.to_datetime(df['date'])
+                    
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=df['date'], 
+                        y=df['forecast_price'], 
+                        mode='lines+markers', 
+                        name='Forecast',
+                        line=dict(color='blue', width=2)
+                    ))
+                    fig.update_layout(
+                        title='Price Forecast',
+                        xaxis_title='Date',
+                        yaxis_title='Forecast Price ($)',
+                        template='plotly_white'
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                except ImportError:
+                    st.info("Plotly not available for charts. Install with: pip install plotly")
+        
+        with tab_data:
+            # Display data in expandable sections
+            if st.session_state.get('price_data'):
+                with st.expander("📈 Price Data"):
+                    st.dataframe(pd.DataFrame(st.session_state.price_data))
+            
+            if st.session_state.get('indicator_data'):
+                with st.expander("📊 Technical Indicators"):
+                    st.dataframe(pd.DataFrame(st.session_state.indicator_data))
+            
+            if st.session_state.get('events'):
+                with st.expander("⚡ Price Events"):
+                    st.dataframe(pd.DataFrame(st.session_state.events))
+            
+            if st.session_state.get('forecasts'):
+                with st.expander("🔮 Forecasts"):
+                    st.dataframe(pd.DataFrame(st.session_state.forecasts))
+        
+        with tab_report:
+            # Display the comprehensive report
+            if st.session_state.get('report'):
+                report = st.session_state.report
+                
+                # Asset Information
+                if 'asset_info' in report:
+                    st.subheader("🏢 Asset Information")
+                    info = report['asset_info']
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"**Company:** {info.get('company_name', 'N/A')}")
+                        st.write(f"**Sector:** {info.get('sector', 'N/A')}")
+                    with col2:
+                        st.write(f"**Market Cap:** {info.get('market_cap', 'N/A')}")
+                    if 'description' in info:
+                        st.write(f"**Description:** {info['description']}")
+                
+                # Price Analysis
+                if 'price_analysis' in report:
+                    st.subheader("💰 Price Analysis")
+                    price_data = report['price_analysis']
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"**Current Price:** {price_data.get('current_price', 'N/A')}")
+                        st.write(f"**30-Day Change:** {price_data.get('price_change_30d', 'N/A')}")
+                    with col2:
+                        st.write(f"**Volatility:** {price_data.get('volatility', 'N/A')}")
+                        st.write(f"**Trading Volume:** {price_data.get('trading_volume', 'N/A')}")
+                
+                # Technical Indicators
+                if 'technical_indicators' in report:
+                    st.subheader("📊 Technical Indicators")
+                    indicators = report['technical_indicators']
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("RSI", indicators.get('rsi', 'N/A'))
+                        st.metric("MACD Signal", indicators.get('macd_signal', 'N/A'))
+                    with col2:
+                        st.metric("Bollinger Position", indicators.get('bollinger_position', 'N/A'))
+                        st.metric("50-Day MA", indicators.get('moving_average_50d', 'N/A'))
+                    with col3:
+                        st.metric("200-Day MA", indicators.get('moving_average_200d', 'N/A'))
+                        st.metric("Support Level", indicators.get('support_level', 'N/A'))
+                
+                # Events
+                if 'events' in report and report['events']:
+                    st.subheader("⚡ Significant Events")
+                    for event in report['events']:
+                        impact_emoji = "📈" if event.get('impact') == 'positive' else "📉" if event.get('impact') == 'negative' else "➡️"
+                        st.write(f"{impact_emoji} **{event.get('date', 'N/A')}**: {event.get('description', 'N/A')} (Magnitude: {event.get('magnitude', 'N/A')}%)")
+                
+                # Forecast
+                if 'forecast' in report:
+                    st.subheader("🔮 Price Forecast")
+                    forecast = report['forecast']
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"**Predicted Price (5d):** {forecast.get('predicted_price_5d', 'N/A')}")
+                        st.write(f"**Confidence:** {forecast.get('confidence', 'N/A')}")
+                    with col2:
+                        st.write(f"**Trend:** {forecast.get('trend', 'N/A')}")
+                        st.write(f"**Expected Range:** {forecast.get('expected_range', 'N/A')}")
+                    
+                    if 'key_factors' in forecast:
+                        st.write(f"**Key Factors:** {', '.join(forecast['key_factors'])}")
+                
+                # Web Search Results
+                if 'web_search_results' in report and report['web_search_results']:
+                    st.subheader("📰 Recent News & Analysis")
+                    for result in report['web_search_results']:
+                        st.write(f"📰 [{result.get('title', 'N/A')}]({result.get('href', '#')})")
+                        st.write(f"   {result.get('content', 'N/A')[:200]}...")
+                        st.caption(f"Source: {result.get('source', 'Unknown')} | {result.get('date', 'N/A')}")
+
+    # Sidebar with system information
+    with st.sidebar:
+        st.header("🤖 System Information")
+        
+        is_mock_mode = MOCK_MODE or st.session_state.get('mock_mode_override', False)
+        if is_mock_mode:
+            st.markdown('<div class="status-badge status-demo">Demo Mode</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="status-badge" style="background-color: #e8f5e8; color: #2e7d32; border: 1px solid #c8e6c9;">Live Mode</div>', unsafe_allow_html=True)
+        
+        with st.expander("🔧 How This Works"):
+            is_mock_mode = MOCK_MODE or st.session_state.get('mock_mode_override', False)
+            if is_mock_mode:
+                st.markdown("""
+                **Agentic AI Process**:
+                1. **Input Analysis** - Understand your request
+                2. **Web Search** - Gather context about the asset
+                3. **Asset Validation** - Confirm ticker/symbol
+                4. **Data Collection** - Get historical prices
+                5. **Technical Analysis** - Calculate indicators
+                6. **Event Detection** - Find significant movements
+                7. **Forecasting** - Predict future prices
+                8. **Report Generation** - Compile results
+                
+                **Note**: This is a demonstration using mock data to show how agentic AI would work.
+                """)
+            else:
+                st.markdown("""
+                **Agentic AI Process**:
+                1. **Input Analysis** - Understand your request
+                2. **Web Search** - Gather context about the asset
+                3. **Asset Validation** - Confirm ticker/symbol
+                4. **Data Collection** - Get historical prices from Yahoo Finance
+                5. **Technical Analysis** - Calculate indicators (RSI, MACD, Bollinger)
+                6. **Event Detection** - Find significant movements
+                7. **Forecasting** - Predict future prices using ML
+                8. **Report Generation** - Compile results
+                
+                **Note**: This uses real financial APIs and live market data.
+                """)
+        
+        with st.expander("📊 Data Source"):
+            is_mock_mode = MOCK_MODE or st.session_state.get('mock_mode_override', False)
+            if is_mock_mode:
+                st.write("Current session uses realistic mock data including:")
+                st.write("• 30 days of price history")
+                st.write("• Technical indicators (RSI, MACD, Bollinger)")
+                st.write("• Significant price events")
+                st.write("• 5-day price forecasts")
+                st.write("• Market news and analysis")
+            else:
+                st.write("Current session uses real market data from:")
+                st.write("• Yahoo Finance API (stock prices)")
+                st.write("• CoinGecko API (crypto prices)")
+                st.write("• Google Gemini AI (analysis)")
+                st.write("• DuckDuckGo (web search)")
+                st.write("• Real-time technical indicators")
+                st.write("• Live market news and events")
+        
+        with st.expander("🚀 Getting Started"):
+            st.markdown("""
+            **Quick Start**:
+            1. Enter a ticker symbol (AAPL, BTC, etc.)
+            2. Adjust analysis parameters
+            3. Click "Analyze" to start
+            4. View results in different tabs
+            
+            **Tips**:
+            - Try different tickers
+            - Adjust time periods
+            - Compare technical indicators
+            - Review the full analysis report
+            """)
 
 if __name__ == "__main__":
     main()

@@ -112,7 +112,9 @@ class TestCryptoInfo:
     def test_get_crypto_info_no_api(self):
         """Test crypto info when API is not available"""
         with patch('src.services.CoinGeckoAPI', None):
-            result = get_crypto_info("bitcoin")
+            # Use a unique ticker to avoid cached results
+            unique_ticker = f"bitcoin_test_{id(self)}"
+            result = get_crypto_info(unique_ticker)
             assert 'error' in result
 
 
@@ -155,6 +157,48 @@ class TestComputeIndicators:
         result = compute_indicators(data)
         
         assert result == []
+    
+    def test_compute_indicators_with_small_dataset(self):
+        """Test technical indicator computation with small dataset (5 days)"""
+        # Test with minimum viable dataset
+        data = [
+            {'date': '2023-01-01', 'close': 100, 'open': 99, 'high': 101, 'low': 98, 'volume': 1000000},
+            {'date': '2023-01-02', 'close': 101, 'open': 100, 'high': 102, 'low': 99, 'volume': 1100000},
+            {'date': '2023-01-03', 'close': 102, 'open': 101, 'high': 103, 'low': 100, 'volume': 1200000},
+            {'date': '2023-01-04', 'close': 103, 'open': 102, 'high': 104, 'low': 101, 'volume': 1300000},
+            {'date': '2023-01-05', 'close': 104, 'open': 103, 'high': 105, 'low': 102, 'volume': 1400000},
+        ]
+        
+        result = compute_indicators(data)
+        
+        # Should return all 5 data points (no rows dropped)
+        assert len(result) == 5, f"Expected 5 results, got {len(result)}"
+        
+        # Check that all required fields are present and valid
+        for i, row in enumerate(result):
+            assert 'date' in row, f"Missing date in row {i}"
+            assert 'ma5' in row, f"Missing ma5 in row {i}"
+            assert 'ma10' in row, f"Missing ma10 in row {i}"
+            assert 'daily_return' in row, f"Missing daily_return in row {i}"
+            assert 'volatility' in row, f"Missing volatility in row {i}"
+            
+            # Check that values are numeric
+            assert isinstance(row['ma5'], (int, float)), f"ma5 should be numeric in row {i}"
+            assert isinstance(row['ma10'], (int, float)), f"ma10 should be numeric in row {i}"
+            assert isinstance(row['daily_return'], (int, float)), f"daily_return should be numeric in row {i}"
+            assert isinstance(row['volatility'], (int, float)), f"volatility should be numeric in row {i}"
+        
+        # Check specific values for first and last rows
+        assert result[0]['ma5'] == 100.0  # First day: ma5 should equal close price
+        assert result[0]['ma10'] == 100.0  # First day: ma10 should equal close price
+        assert result[0]['daily_return'] == 0.0  # First day: no previous day to compare
+        assert result[0]['volatility'] == 0.0  # First day: no volatility data
+        
+        # Last day should have calculated values
+        assert result[-1]['ma5'] > 0, "Last day ma5 should be positive"
+        assert result[-1]['ma10'] > 0, "Last day ma10 should be positive"
+        assert result[-1]['daily_return'] >= 0, "Last day daily_return should be non-negative (upward trend)"
+        assert result[-1]['volatility'] >= 0, "Last day volatility should be non-negative"
 
 
 class TestDetectEvents:
@@ -226,11 +270,25 @@ class TestBuildReport:
             crypto_info=None
         )
         
-        assert 'content' in result
-        assert 'ticker' in result
-        assert 'analysis_period' in result
-        assert 'generated_date' in result
-        assert 'Apple Inc.' in result['content']
+        # Check new report structure
+        assert 'asset_info' in result
+        assert 'price_analysis' in result
+        assert 'technical_indicators' in result
+        assert 'events' in result
+        assert 'forecast' in result
+        assert 'analysis_summary' in result
+        
+        # Check asset info content
+        assert result['asset_info']['company_name'] == 'Apple Inc.'
+        assert result['asset_info']['type'] == 'stock'
+        
+        # Check events
+        assert len(result['events']) == 1
+        assert result['events'][0]['magnitude'] == 5.0
+        
+        # Check forecast
+        assert 'predicted_price_5d' in result['forecast']
+        assert 'confidence' in result['forecast']
     
     def test_build_report_with_missing_data(self):
         """Test report building with missing data"""
@@ -242,10 +300,21 @@ class TestBuildReport:
             crypto_info=None
         )
         
-        assert 'content' in result
-        assert 'ticker' in result
-        assert 'analysis_period' in result
-        assert 'generated_date' in result
+        # Check new report structure with missing data
+        assert 'asset_info' in result
+        assert 'price_analysis' in result
+        assert 'technical_indicators' in result
+        assert 'events' in result
+        assert 'forecast' in result
+        assert 'analysis_summary' in result
+        
+        # Check fallback values
+        assert result['asset_info']['company_name'] == 'TEST'
+        assert result['asset_info']['sector'] == 'Unknown'
+        assert result['price_analysis']['current_price'] == 'N/A'
+        assert len(result['events']) == 0
+        assert result['forecast']['predicted_price_5d'] == 'N/A'
+        assert result['analysis_summary']['overall_rating'] == 'HOLD'
 
 
 class TestDDGSSearch:

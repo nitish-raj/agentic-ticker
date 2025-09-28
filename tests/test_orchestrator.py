@@ -60,18 +60,18 @@ class TestOrchestrator:
     
     def test_sanitize_error_message(self):
         """Test error message sanitization"""
-        orchestrator = Orchestrator()
+        from src.orchestrator import sanitize_error_message
         
         # Test with API key in error message
         error_with_key = "Request failed: https://api.example.com?key=secret123&param=value"
-        sanitized = orchestrator._sanitize_error_message(error_with_key)
+        sanitized = sanitize_error_message(error_with_key)
         
         assert 'secret123' not in sanitized
         assert 'key=' in sanitized  # Should keep the parameter name
         
         # Test with normal error message
         normal_error = "Network timeout occurred"
-        sanitized_normal = orchestrator._sanitize_error_message(normal_error)
+        sanitized_normal = sanitize_error_message(normal_error)
         
         assert sanitized_normal == normal_error
 

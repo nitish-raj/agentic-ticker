@@ -5,12 +5,40 @@ from typing import List, Dict, Any
 from .json_helpers import _dumps, _parse_json_strictish
 from .data_models import PlannerJSON, FunctionCall
 
+# Import configuration system
+try:
+    from config import get_config
+except ImportError:
+    # Fallback for when running as script
+    import sys
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from src.config import get_config
+
+# Import decorators
+try:
+    from decorators import handle_errors, log_execution, time_execution, validate_inputs, retry_on_failure
+except ImportError:
+    # Fallback for development environment
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from src.decorators import handle_errors, log_execution, time_execution, validate_inputs, retry_on_failure
+
 
 class GeminiPlanner:
     def __init__(self):
-        self.api_key = os.getenv("GEMINI_API_KEY")
-        self.model = os.getenv("GEMINI_MODEL")
-        self.api_base = os.getenv("GEMINI_API_BASE")
+        try:
+            config = get_config()
+            gemini_config = config.gemini
+            self.api_key = gemini_config.api_key
+            self.model = gemini_config.model
+            self.api_base = gemini_config.api_base
+        except Exception:
+            # Fallback to environment variables if config not available
+            self.api_key = os.getenv("GEMINI_API_KEY")
+            self.model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+            self.api_base = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
+        
         if not self.api_key:
             raise RuntimeError("GEMINI_API_KEY is required")
 
@@ -55,7 +83,7 @@ class GeminiPlanner:
             "5. compute_indicators: Use the price data from step 4\n"
             "6. detect_events: Use indicator_data=compute_indicators (from step 5) and threshold={threshold}\n"
             "7. forecast_prices: Use indicator_data=compute_indicators (from step 5) and days={forecast_days}\n"
-            "8. build_report: Use ticker=validated_ticker, events=detect_events (from step 6), forecasts=forecast_prices (from step 7), and company_info=get_company_info (from step 3)\n"
+            "8. build_report: Use ticker=validated_ticker, events=detect_events (from step 6), forecasts=forecast_prices (from step 7), company_info=get_company_info (from step 3), price_data=load_prices (from step 4), and indicator_data=compute_indicators (from step 5)\n"
             "\n"
             "FOR CRYPTO ASSETS:\n"
             "1. validate_ticker: Use input_text=goal (the user's crypto_input)\n"
@@ -64,7 +92,7 @@ class GeminiPlanner:
             "4. compute_indicators: Use the crypto price data from step 3\n"
             "5. detect_events: Use indicator_data=compute_indicators (from step 4) and threshold={threshold}\n"
             "6. forecast_prices: Use indicator_data=compute_indicators (from step 4) and days={forecast_days}\n"
-            "7. build_report: Use ticker=validated_ticker, events=detect_events (from step 5), forecasts=forecast_prices (from step 6), and crypto_info=get_crypto_info (from step 2)\n"
+            "7. build_report: Use ticker=validated_ticker, events=detect_events (from step 5), forecasts=forecast_prices (from step 6), crypto_info=get_crypto_info (from step 2), price_data=load_prices (from step 3), and indicator_data=compute_indicators (from step 4)\n"
             "\n"
             "FOR AMBIGUOUS ASSETS:\n"
             "1. ddgs_search: Use query=goal (the user's input) to find information about the company/asset\n"
@@ -84,6 +112,8 @@ class GeminiPlanner:
             "- Example: If you don't see 'detect_events' result, you MUST call detect_events\n"
             "- IMPORTANT: Before calling build_report or build_crypto_report, ensure you have: validated_ticker/crypto_id, detect_events, forecast_prices, and company_info/crypto_info results\n"
             "- build_report/build_crypto_report is the FINAL step - call it only when all other data is available\n"
+            "- CRITICAL: Always check that required data exists in context before using it as arguments\n"
+            "- If context data is missing, call the appropriate function to generate it first\n"
             "\n"
             "ARGUMENT HANDLING:\n"
             "- Extract function arguments from docstrings and previous results\n"
@@ -93,10 +123,15 @@ class GeminiPlanner:
             f"- For load_prices, use ticker=validated_ticker and days={days}\n"
             f"- For detect_events, use indicator_data=context_key and threshold={threshold}\n"
             f"- For forecast_prices, use indicator_data=context_key and days={forecast_days}\n"
-            "- For build_report, use ticker=validated_ticker, events=detect_events, forecasts=forecast_prices, company_info=get_company_info, and crypto_info=get_crypto_info (if available)\n"
+            "- For build_report, use ticker=validated_ticker, events=detect_events, forecasts=forecast_prices, company_info=get_company_info, crypto_info=get_crypto_info (if available), price_data=load_prices, and indicator_data=compute_indicators\n"
             "- For get_crypto_info, use ticker=validated_ticker and original_input=goal (the original user input)\n"
             "- IMPORTANT: For large data structures like indicator_data, events, forecasts, use the context key name as argument value\n"
             "- Example: if context has 'compute_indicators' result, use 'compute_indicators' as indicator_data argument\n"
+            "- CRITICAL: NEVER pass empty strings ('') as arguments. If you don't have a value, either:\n"
+            "  1. Use a context reference (e.g., 'validated_ticker', 'detect_events')\n"
+            "  2. Use the function's default value if available\n"
+            "  3. Omit the parameter entirely if it has a default\n"
+            "  4. For required parameters without defaults, you MUST have a valid value from context\n"
             "\n"
             "OUTPUT FORMAT:\n"
             "Only output a single JSON object with either {\"call\":{name,args}} or {\"final\":\"message string\"}.\n"

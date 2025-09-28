@@ -77,16 +77,16 @@ class TestIntegration:
     
     def test_error_sanitization_integration(self):
         """Test error message sanitization in orchestrator"""
-        orchestrator = Orchestrator()
-        
+        from src.orchestrator import sanitize_error_message
+    
         # Test with API key
         error_msg = "Error: https://api.example.com?key=secret123&param=value failed"
-        sanitized = orchestrator._sanitize_error_message(error_msg)
+        sanitized = sanitize_error_message(error_msg)
         
         assert 'secret123' not in sanitized
         assert 'key=' in sanitized  # Should keep parameter name
         assert 'api.example.com' in sanitized  # Should keep domain
-    
+
     @patch('src.services.validate_ticker')
     def test_validation_function_integration(self, mock_validate):
         """Test ticker validation integration"""

@@ -633,7 +633,7 @@ def validate_ticker(input_text: str) -> str:
                             print(f"✓ Web search + Gemini parsing successful: {parsed_ticker}")
                             return parsed_ticker
                     except TimeoutError as e:
-                        print(_sanitize_print_error(e, f"Parsed ticker validation timed out for {parsed_ticker}"))
+                        print(_sanitize_print_error(e, "Parsed ticker validation timed out"))
                     except Exception as e:
                         # Avoid logging unsanitized ticker value (could be tainted)
                         print(_sanitize_print_error(e, "Parsed ticker validation failed"))

@@ -635,7 +635,8 @@ def validate_ticker(input_text: str) -> str:
                     except TimeoutError as e:
                         print(_sanitize_print_error(e, f"Parsed ticker validation timed out for {parsed_ticker}"))
                     except Exception as e:
-                        print(_sanitize_print_error(e, f"Parsed ticker validation failed for {parsed_ticker}"))
+                        # Avoid logging unsanitized ticker value (could be tainted)
+                        print(_sanitize_print_error(e, "Parsed ticker validation failed"))
             else:
                 print("⚠ No search results found")
                 return ""  # Return empty string if no ticker found

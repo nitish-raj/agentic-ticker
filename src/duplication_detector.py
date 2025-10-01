@@ -225,6 +225,11 @@ class DuplicationDetector:
                     include_tests: bool) -> List[str]:
         """Find all files matching the given patterns, restricting to safe root."""
         files = []
+        # Defensive validation of analysis_scope: must not be absolute or contain traversal
+        if os.path.isabs(analysis_scope):
+            raise ValueError(f"Analysis scope must be a relative path under the safe root (got absolute path: {analysis_scope!r})")
+        if '..' in Path(analysis_scope).parts:
+            raise ValueError(f"Analysis scope must not contain parent directory traversal '..' (got: {analysis_scope!r})")
         # Compute the normalized/real analysis scope joined to safe root
         abs_safe_root = os.path.realpath(os.path.abspath(self.safe_root))
         candidate_scope = os.path.realpath(os.path.abspath(os.path.join(abs_safe_root, analysis_scope)))

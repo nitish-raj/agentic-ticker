@@ -482,7 +482,7 @@ def main():
                 
                 if api_key_available:
                     orchestrator = Orchestrator()
-                    print(f"🚀 Real orchestrator initialized successfully (API key from {source})")
+                    print("🚀 Real orchestrator initialized successfully (API key available)")
                 else:
                     print("⚠️  API key not available, falling back to mock mode")
                     print("💡 Tip: Add GEMINI_API_KEY to your config.yaml file")

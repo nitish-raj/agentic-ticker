@@ -579,9 +579,9 @@ def validate_ticker(input_text: str) -> str:
                 if not test_data.empty:
                     return ticker
             except TimeoutError as e:
-                print(_sanitize_print_error(e, f"Ticker validation timed out for {ticker}"))
+                print(_sanitize_print_error(e, "Ticker validation timed out"))
             except Exception as e:
-                print(_sanitize_print_error(e, f"Ticker validation failed for {ticker}"))
+                print(_sanitize_print_error(e, "Ticker validation failed"))
         
         # If Gemini fails or returns invalid ticker, try web search as fallback
         try:

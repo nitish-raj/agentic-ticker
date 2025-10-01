@@ -225,12 +225,13 @@ class DuplicationDetector:
                     include_tests: bool) -> List[str]:
         """Find all files matching the given patterns, restricting to safe root."""
         files = []
-        # Compute the normalized/absolute analysis scope joined to safe root
-        abs_safe_root = os.path.abspath(self.safe_root)
-        candidate_scope = os.path.abspath(os.path.join(abs_safe_root, analysis_scope))
+        # Compute the normalized/real analysis scope joined to safe root
+        abs_safe_root = os.path.realpath(os.path.abspath(self.safe_root))
+        candidate_scope = os.path.realpath(os.path.abspath(os.path.join(abs_safe_root, analysis_scope)))
         if not os.path.exists(candidate_scope):
             raise ValueError(f"Analysis scope path does not exist: {candidate_scope}")
-        if not candidate_scope.startswith(abs_safe_root):
+        # Use os.path.commonpath to securely check that candidate_scope is within abs_safe_root
+        if os.path.commonpath([abs_safe_root, candidate_scope]) != abs_safe_root:
             raise ValueError(f"Analysis scope path escapes the allowed directory: {analysis_scope}")
         base_path = Path(candidate_scope)
 
@@ -245,18 +246,29 @@ class DuplicationDetector:
             
             for file_path in matched_files:
                 if file_path.is_file():
-                    file_str = str(file_path)
+                    file_real_path = os.path.realpath(str(file_path))
+                    # Ensure each file is contained in safe root
+                    if not self._is_within_safe_root(file_real_path, abs_safe_root):
+                        continue
                     
                     # Skip test files if not including tests
-                    if not include_tests and self._is_test_file(file_str):
+                    if not include_tests and self._is_test_file(file_real_path):
                         continue
                     
                     # Skip non-Python files for now (can be extended later)
-                    if not file_str.endswith('.py'):
+                    if not file_real_path.endswith('.py'):
                         continue
                     
-                    files.append(file_str)
+                    files.append(file_real_path)
         
+    def _is_within_safe_root(self, path: str, safe_root: str) -> bool:
+        """Return True if the given path is within the safe_root directory."""
+        try:
+            return os.path.commonpath([os.path.realpath(path), safe_root]) == safe_root
+        except ValueError:
+            # Raised if paths are on different drives (Windows), treat as not allowed
+            return False
+
         return sorted(list(set(files)))
     
     def _is_test_file(self, file_path: str) -> bool:

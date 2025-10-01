@@ -581,6 +581,8 @@ async def analyze_code_duplications(analysis_request: CodeDuplicationAnalysisReq
         
         # Perform the analysis (in a real system, this would be async)
         try:
+            # Define allowed safe root for code analysis
+            SAFE_ROOT = os.path.abspath(os.getcwd())
             detected_patterns = scan_for_duplications(
                 analysis_scope=analysis_request.analysis_scope,
                 file_patterns=analysis_request.file_patterns,
@@ -588,7 +590,8 @@ async def analyze_code_duplications(analysis_request: CodeDuplicationAnalysisReq
                 ignore_comments=analysis_request.ignore_comments,
                 ignore_whitespace=analysis_request.ignore_whitespace,
                 include_tests=analysis_request.include_tests,
-                similarity_threshold=analysis_request.threshold_similarity
+                similarity_threshold=analysis_request.threshold_similarity,
+                safe_root=SAFE_ROOT
             )
             
             # Convert detected patterns to API format and store them

@@ -161,13 +161,16 @@ class DuplicationDetector:
     """Main class for detecting code duplication patterns."""
     
     def __init__(self, min_lines: int = 3, similarity_threshold: float = 0.8,
-                 ignore_comments: bool = True, ignore_whitespace: bool = True):
+                 ignore_comments: bool = True, ignore_whitespace: bool = True,
+                 safe_root: Optional[str] = None):
         self.min_lines = min_lines
         self.similarity_threshold = similarity_threshold
         self.ignore_comments = ignore_comments
         self.ignore_whitespace = ignore_whitespace
         self.patterns: List[CodeDuplicationPattern] = []
         self._file_cache: Dict[str, List[str]] = {}
+        # Default to current working directory if not specified
+        self.safe_root = os.path.abspath(safe_root) if safe_root else os.path.abspath(os.getcwd())
     
     def scan_codebase(self, analysis_scope: str, file_patterns: List[str],
                      include_tests: bool = False) -> List[CodeDuplicationPattern]:
@@ -220,13 +223,17 @@ class DuplicationDetector:
     
     def _find_files(self, analysis_scope: str, file_patterns: List[str], 
                     include_tests: bool) -> List[str]:
-        """Find all files matching the given patterns."""
+        """Find all files matching the given patterns, restricting to safe root."""
         files = []
-        base_path = Path(analysis_scope)
-        
-        if not base_path.exists():
-            raise ValueError(f"Analysis scope path does not exist: {analysis_scope}")
-        
+        # Compute the normalized/absolute analysis scope joined to safe root
+        abs_safe_root = os.path.abspath(self.safe_root)
+        candidate_scope = os.path.abspath(os.path.join(abs_safe_root, analysis_scope))
+        if not os.path.exists(candidate_scope):
+            raise ValueError(f"Analysis scope path does not exist: {candidate_scope}")
+        if not candidate_scope.startswith(abs_safe_root):
+            raise ValueError(f"Analysis scope path escapes the allowed directory: {analysis_scope}")
+        base_path = Path(candidate_scope)
+
         for pattern in file_patterns:
             # Handle glob patterns
             if '**' in pattern:
@@ -751,7 +758,8 @@ def scan_for_duplications(analysis_scope: str, file_patterns: List[str],
                          ignore_comments: bool = True,
                          ignore_whitespace: bool = True,
                          include_tests: bool = False,
-                         similarity_threshold: float = 0.8) -> List[CodeDuplicationPattern]:
+                         similarity_threshold: float = 0.8,
+                         safe_root: Optional[str] = None) -> List[CodeDuplicationPattern]:
     """
     Convenience function to scan for code duplications.
     
@@ -771,7 +779,8 @@ def scan_for_duplications(analysis_scope: str, file_patterns: List[str],
         min_lines=min_duplication_lines,
         similarity_threshold=similarity_threshold,
         ignore_comments=ignore_comments,
-        ignore_whitespace=ignore_whitespace
+        ignore_whitespace=ignore_whitespace,
+        safe_root=safe_root
     )
     
     return detector.scan_codebase(analysis_scope, file_patterns, include_tests)

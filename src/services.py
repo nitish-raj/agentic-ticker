@@ -6,9 +6,27 @@ import pandas as pd
 import numpy as np
 import json
 import time
+import threading
+import signal
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
+from contextlib import contextmanager
+
+# Helper function for sanitizing error messages
+def _sanitize_print_error(error_msg, context: str = "") -> str:
+    """Sanitize error messages for print statements to prevent API key exposure."""
+    try:
+        from sanitization import sanitize_error_message
+        sanitized = sanitize_error_message(error_msg)
+        return f"{context}: {sanitized}" if context else sanitized
+    except ImportError:
+        try:
+            from .sanitization import sanitize_error_message
+            sanitized = sanitize_error_message(error_msg)
+            return f"{context}: {sanitized}" if context else sanitized
+        except ImportError:
+            return f"{context}: {error_msg}" if context else str(error_msg)
 
 # Import configuration system
 try:
@@ -76,6 +94,101 @@ except ImportError:
         except:
             return str(date_input) if date_input is not None else ''
 
+# Timeout handling utilities
+class TimeoutError(Exception):
+    """Custom timeout exception for API calls"""
+    pass
+
+class CircuitBreaker:
+    """Circuit breaker pattern for handling repeated API failures"""
+    def __init__(self, failure_threshold=5, timeout=60):
+        self.failure_threshold = failure_threshold
+        self.timeout = timeout
+        self.failure_count = 0
+        self.last_failure_time = None
+        self.state = 'CLOSED'  # CLOSED, OPEN, HALF_OPEN
+    
+    def call(self, func, *args, **kwargs):
+        if self.state == 'OPEN':
+            if time.time() - self.last_failure_time > self.timeout:
+                self.state = 'HALF_OPEN'
+            else:
+                raise TimeoutError(f"Circuit breaker is OPEN. Try again in {self.timeout - (time.time() - self.last_failure_time):.1f} seconds")
+        
+        try:
+            result = func(*args, **kwargs)
+            if self.state == 'HALF_OPEN':
+                self.state = 'CLOSED'
+                self.failure_count = 0
+            return result
+        except Exception as e:
+            self.failure_count += 1
+            self.last_failure_time = time.time()
+            if self.failure_count >= self.failure_threshold:
+                self.state = 'OPEN'
+            raise e
+
+@contextmanager
+def timeout_context(seconds):
+    """Context manager for timing out operations"""
+    def timeout_handler(signum, frame):
+        raise TimeoutError(f"Operation timed out after {seconds} seconds")
+    
+    # Set the signal handler
+    old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(seconds)
+    
+    try:
+        yield
+    finally:
+        # Restore the old signal handler
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
+
+def with_timeout(func, timeout_seconds=30, *args, **kwargs):
+    """Execute a function with a timeout using threading"""
+    result = [None]
+    exception = [None]
+    
+    def target():
+        try:
+            result[0] = func(*args, **kwargs)
+        except Exception as e:
+            exception[0] = e
+    
+    thread = threading.Thread(target=target)
+    thread.daemon = True
+    thread.start()
+    thread.join(timeout_seconds)
+    
+    if thread.is_alive():
+        raise TimeoutError(f"Operation timed out after {timeout_seconds} seconds")
+    
+    if exception[0]:
+        raise exception[0]
+    
+    return result[0]
+
+# Global circuit breakers for different services
+yfinance_circuit_breaker = CircuitBreaker(failure_threshold=3, timeout=60)
+gemini_circuit_breaker = CircuitBreaker(failure_threshold=5, timeout=120)
+coingecko_circuit_breaker = CircuitBreaker(failure_threshold=3, timeout=60)
+
+def safe_yfinance_call(func, timeout_seconds=30, *args, **kwargs):
+    """Safe yfinance call with timeout and circuit breaker"""
+    def yf_call():
+        return func(*args, **kwargs)
+    
+    return yfinance_circuit_breaker.call(with_timeout, yf_call, timeout_seconds)
+
+def safe_gemini_call(func, timeout_seconds=30, *args, **kwargs):
+    """Safe Gemini API call with circuit breaker"""
+    return gemini_circuit_breaker.call(func, *args, **kwargs)
+
+def safe_coingecko_call(func, timeout_seconds=30, *args, **kwargs):
+    """Safe CoinGecko API call with circuit breaker"""
+    return coingecko_circuit_breaker.call(func, *args, **kwargs)
+
 
 @handle_errors(default_return=[], log_errors=True)
 @log_execution(include_args=False, include_result=False)
@@ -89,10 +202,8 @@ def ddgs_search(query, max_results=3, **kwargs):
             print("Web search feature is disabled")
             return []
     except Exception:
-        # Fallback to environment variable if config not available
-        if os.getenv("ENABLE_WEB_SEARCH", "true").lower() not in ("true", "1", "yes", "on"):
-            print("Web search feature is disabled")
-            return []
+        # Fallback if config not available
+        pass
     
     try:
         from ddgs import DDGS
@@ -138,7 +249,13 @@ def ddgs_search(query, max_results=3, **kwargs):
         return formatted_results[:search_max_results]
         
     except Exception as e:
-        print(f"Web search failed: {e}")
+        # Sanitize error message to prevent API key exposure
+        try:
+            from .sanitization import sanitize_error_message
+            sanitized_error = sanitize_error_message(str(e))
+        except ImportError:
+            sanitized_error = str(e)
+        print(f"Web search failed: {sanitized_error}")
         return []
 
 
@@ -172,10 +289,11 @@ def validate_crypto_ticker(input_text: str) -> str:
             model = gemini_config.model
             api_base = gemini_config.api_base
         except Exception:
-            # Fallback to environment variables if config not available
-            api_key = os.getenv("GEMINI_API_KEY") or ""
-            model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
-            api_base = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
+            # Fallback if config not available
+            config = get_config()
+            api_key = config.gemini.api_key if config else ""
+            model = config.gemini.model if config else "gemini-2.5-flash-lite"
+            api_base = config.gemini.api_base if config else "https://generativelanguage.googleapis.com/v1beta"
         
         if not api_key:
             # Fallback: return with -USD suffix for dynamic resolution
@@ -205,6 +323,12 @@ def validate_crypto_ticker(input_text: str) -> str:
         """
         
         url = f"{api_base}/models/{model}:generateContent?key={api_key}"
+        # Sanitize URL for any potential logging/debug output
+        try:
+            from .sanitization import sanitize_url
+            sanitized_url = sanitize_url(url)
+        except ImportError:
+            sanitized_url = url
         body = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {
@@ -227,12 +351,17 @@ def validate_crypto_ticker(input_text: str) -> str:
         yf_ticker = f"{ticker}-USD"
         
         try:
-            test_ticker = yf.Ticker(yf_ticker)
-            test_data = test_ticker.history(period="1d")
+            def get_yf_data():
+                test_ticker = yf.Ticker(yf_ticker)
+                return test_ticker.history(period="1d")
+            
+            test_data = safe_yfinance_call(get_yf_data, timeout_seconds=15)
             if not test_data.empty:
                 return yf_ticker
+        except TimeoutError as e:
+            print(_sanitize_print_error(e, f"Yahoo Finance validation timed out for {yf_ticker}"))
         except Exception as e:
-            print(f"Yahoo Finance validation failed for {yf_ticker}: {e}")
+            print(_sanitize_print_error(e, f"Yahoo Finance validation failed for {yf_ticker}"))
         
         # If Yahoo Finance fails, try CoinGecko validation
         try:
@@ -244,9 +373,10 @@ def validate_crypto_ticker(input_text: str) -> str:
                     demo_api_key = coingecko_config.demo_api_key
                     pro_api_key = coingecko_config.pro_api_key
                 except Exception:
-                    # Fallback to environment variables if config not available
-                    demo_api_key = os.getenv("COINGECKO_DEMO_API_KEY") or ""
-                    pro_api_key = os.getenv("COINGECKO_API_KEY") or ""
+                    # Fallback if config not available
+                    config = get_config()
+                    demo_api_key = config.coingecko.demo_api_key if config else ""
+                    pro_api_key = config.coingecko.pro_api_key if config else ""
                 
                 if demo_api_key:
                     cg = CoinGeckoAPI(demo_api_key=demo_api_key)
@@ -261,7 +391,7 @@ def validate_crypto_ticker(input_text: str) -> str:
                     # CoinGecko found it, so it's valid
                     return yf_ticker
         except Exception as e:
-            print(f"CoinGecko validation failed for {ticker}: {e}")
+            print(_sanitize_print_error(e, f"CoinGecko validation failed for {ticker}"))
         
         # If Gemini fails or returns invalid ticker, try web search as fallback
         try:
@@ -304,24 +434,29 @@ def validate_crypto_ticker(input_text: str) -> str:
                 # Validate the parsed ticker
                 yf_parsed_ticker = f"{parsed_ticker}-USD"
                 try:
-                    test_ticker = yf.Ticker(yf_parsed_ticker)
-                    test_data = test_ticker.history(period="1d")
+                    def get_parsed_yf_data():
+                        test_ticker = yf.Ticker(yf_parsed_ticker)
+                        return test_ticker.history(period="1d")
+                    
+                    test_data = safe_yfinance_call(get_parsed_yf_data, timeout_seconds=15)
                     if not test_data.empty:
                         print(f"✓ Web search + Gemini parsing successful: {yf_parsed_ticker}")
                         return yf_parsed_ticker
+                except TimeoutError as e:
+                    print(_sanitize_print_error(e, f"Parsed crypto ticker validation timed out for {yf_parsed_ticker}"))
                 except Exception as e:
-                    print(f"Parsed crypto ticker validation failed for {yf_parsed_ticker}: {e}")
+                    print(_sanitize_print_error(e, f"Parsed crypto ticker validation failed for {yf_parsed_ticker}"))
             else:
                 print("⚠ No search results found for crypto")
                         
         except Exception as e:
-            print(f"Crypto web search fallback failed: {e}")
+            print(_sanitize_print_error(e, "Crypto web search fallback failed"))
         
         # If all else fails, return empty string
         return ""
         
     except Exception as e:
-        print(f"Crypto validation failed: {e}")
+        print(_sanitize_print_error(e, "Crypto validation failed"))
         return ""
 
 
@@ -354,10 +489,20 @@ def validate_ticker(input_text: str) -> str:
             # Check if it's already a valid ticker format (1-5 characters, letters only)
             if re.match(r'^[A-Z]{1,5}$', input_text.upper()):
                 # Quick validation - try to fetch data
-                test_ticker = yf.Ticker(input_text.upper())
-                test_data = test_ticker.history(period="1d")
-                if not test_data.empty:
-                    return input_text.upper()
+                try:
+                    def get_quick_validation_data():
+                        test_ticker = yf.Ticker(input_text.upper())
+                        return test_ticker.history(period="1d")
+                    
+                    test_data = safe_yfinance_call(get_quick_validation_data, timeout_seconds=15)
+                    if not test_data.empty:
+                        return input_text.upper()
+                except TimeoutError:
+                    # Continue to Gemini validation on timeout
+                    pass
+                except Exception:
+                    # Continue to Gemini validation on error
+                    pass
         
         # Use Gemini to resolve the ticker
         try:
@@ -367,10 +512,11 @@ def validate_ticker(input_text: str) -> str:
             model = gemini_config.model
             api_base = gemini_config.api_base
         except Exception:
-            # Fallback to environment variables if config not available
-            api_key = os.getenv("GEMINI_API_KEY") or ""
-            model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
-            api_base = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
+            # Fallback if config not available
+            config = get_config()
+            api_key = config.gemini.api_key if config else ""
+            model = config.gemini.model if config else "gemini-2.5-flash-lite"
+            api_base = config.gemini.api_base if config else "https://generativelanguage.googleapis.com/v1beta"
         
         if not api_key:
             # No fallback - require Gemini API for dynamic validation
@@ -397,6 +543,12 @@ def validate_ticker(input_text: str) -> str:
         """
         
         url = f"{api_base}/models/{model}:generateContent?key={api_key}"
+        # Sanitize URL for any potential logging/debug output
+        try:
+            from .sanitization import sanitize_url
+            sanitized_url = sanitize_url(url)
+        except ImportError:
+            sanitized_url = url
         body = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {
@@ -419,12 +571,17 @@ def validate_ticker(input_text: str) -> str:
         if re.match(r'^[A-Z0-9]{1,5}(-[A-Z0-9]{1,2})?$', ticker):
             # Test the ticker by fetching data
             try:
-                test_ticker = yf.Ticker(ticker)
-                test_data = test_ticker.history(period="1d")
+                def get_ticker_validation_data():
+                    test_ticker = yf.Ticker(ticker)
+                    return test_ticker.history(period="1d")
+                
+                test_data = safe_yfinance_call(get_ticker_validation_data, timeout_seconds=15)
                 if not test_data.empty:
                     return ticker
+            except TimeoutError as e:
+                print(_sanitize_print_error(e, f"Ticker validation timed out for {ticker}"))
             except Exception as e:
-                print(f"Ticker validation failed for {ticker}: {e}")
+                print(_sanitize_print_error(e, f"Ticker validation failed for {ticker}"))
         
         # If Gemini fails or returns invalid ticker, try web search as fallback
         try:
@@ -467,25 +624,30 @@ def validate_ticker(input_text: str) -> str:
                 # Validate the parsed ticker
                 if re.match(r'^[A-Z0-9]{1,5}(-[A-Z0-9]{1,2})?$', parsed_ticker):
                     try:
-                        test_ticker = yf.Ticker(parsed_ticker)
-                        test_data = test_ticker.history(period="1d")
+                        def get_parsed_ticker_data():
+                            test_ticker = yf.Ticker(parsed_ticker)
+                            return test_ticker.history(period="1d")
+                        
+                        test_data = safe_yfinance_call(get_parsed_ticker_data, timeout_seconds=15)
                         if not test_data.empty:
                             print(f"✓ Web search + Gemini parsing successful: {parsed_ticker}")
                             return parsed_ticker
+                    except TimeoutError as e:
+                        print(_sanitize_print_error(e, f"Parsed ticker validation timed out for {parsed_ticker}"))
                     except Exception as e:
-                        print(f"Parsed ticker validation failed for {parsed_ticker}: {e}")
+                        print(_sanitize_print_error(e, f"Parsed ticker validation failed for {parsed_ticker}"))
             else:
                 print("⚠ No search results found")
                 return ""  # Return empty string if no ticker found
                         
         except Exception as e:
-            print(f"Web search fallback failed: {e}")
+            print(_sanitize_print_error(e, "Web search fallback failed"))
         
         # If all else fails, return empty string to indicate no ticker found
         return ""
         
     except Exception as e:
-        print(f"Validation failed: {e}")
+        print(_sanitize_print_error(e, "Validation failed"))
         return ""
 
 
@@ -512,8 +674,19 @@ def load_prices(ticker: str, days: int = 30) -> List[Dict[str, Any]]:
     """
     end_date = datetime.now()
     start_date = end_date - timedelta(days=days)
-    hist = yf.Ticker(ticker).history(start=start_date, end=end_date)
-    if hist.empty:
+    
+    try:
+        def get_price_history():
+            return yf.Ticker(ticker).history(start=start_date, end=end_date)
+        
+        hist = safe_yfinance_call(get_price_history, timeout_seconds=30)
+        if hist.empty:
+            return []
+    except TimeoutError as e:
+        print(_sanitize_print_error(e, f"Price data loading timed out for {ticker}"))
+        return []
+    except Exception as e:
+        print(_sanitize_print_error(e, f"Price data loading failed for {ticker}"))
         return []
     out = []
     for date, row in hist.iterrows():
@@ -550,8 +723,19 @@ def load_crypto_prices(ticker: str, days: int = 30) -> List[Dict[str, Any]]:
         # Use Yahoo Finance for crypto data (same as stocks)
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days)
-        hist = yf.Ticker(ticker).history(start=start_date, end=end_date)
-        if hist.empty:
+        
+        try:
+            def get_crypto_price_history():
+                return yf.Ticker(ticker).history(start=start_date, end=end_date)
+            
+            hist = safe_yfinance_call(get_crypto_price_history, timeout_seconds=30)
+            if hist.empty:
+                return []
+        except TimeoutError as e:
+            print(_sanitize_print_error(e, f"Crypto price data loading timed out for {ticker}"))
+            return []
+        except Exception as e:
+            print(_sanitize_print_error(e, f"Crypto price data loading failed for {ticker}"))
             return []
         out = []
         for date, row in hist.iterrows():
@@ -566,7 +750,7 @@ def load_crypto_prices(ticker: str, days: int = 30) -> List[Dict[str, Any]]:
             })
         return out
     except Exception as e:
-        print(f"Error loading crypto prices for {ticker}: {e}")
+        print(_sanitize_print_error(e, f"Error loading crypto prices for {ticker}"))
         return []
 
 
@@ -766,10 +950,11 @@ def classify_asset_type(input_text: str) -> str:
             model = gemini_config.model
             api_base = gemini_config.api_base
         except Exception:
-            # Fallback to environment variables if config not available
-            api_key = os.getenv("GEMINI_API_KEY") or ""
-            model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
-            api_base = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
+            # Fallback if config not available
+            config = get_config()
+            api_key = config.gemini.api_key if config else ""
+            model = config.gemini.model if config else "gemini-2.5-flash-lite"
+            api_base = config.gemini.api_base if config else "https://generativelanguage.googleapis.com/v1beta"
         
         if not api_key:
             # No fallback - require Gemini API for dynamic classification
@@ -801,6 +986,12 @@ def classify_asset_type(input_text: str) -> str:
         """
         
         url = f"{api_base}/models/{model}:generateContent?key={api_key}"
+        # Sanitize URL for any potential logging/debug output
+        try:
+            from .sanitization import sanitize_url
+            sanitized_url = sanitize_url(url)
+        except ImportError:
+            sanitized_url = url
         body = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {
@@ -824,7 +1015,7 @@ def classify_asset_type(input_text: str) -> str:
             return "ambiguous"
             
     except Exception as e:
-        print(f"Asset classification failed: {e}")
+        print(_sanitize_print_error(e, "Asset classification failed"))
         return "ambiguous"
 
 
@@ -891,18 +1082,24 @@ def get_company_info(ticker: str) -> Dict[str, str]:
         Dict with company info
     """
     try:
-        stock = yf.Ticker(ticker)
-        info = stock.info
+        def get_company_info_data():
+            stock = yf.Ticker(ticker)
+            return stock.info
+        
+        info = safe_yfinance_call(get_company_info_data, timeout_seconds=20)
         return {
             "ticker": ticker,
             "company_name": info.get('longName', ticker),
             "short_name": info.get('shortName', ticker)
         }
+    except TimeoutError as e:
+        print(_sanitize_print_error(e, f"Company info retrieval timed out for {ticker}"))
+        return {"ticker": ticker, "company_name": ticker, "short_name": ticker}
     except ValueError as e:
         # Re-raise validation errors to ensure they propagate
         raise e
     except Exception as e:
-        print(f"Error getting company info for {ticker}: {e}")
+        print(_sanitize_print_error(e, f"Error getting company info for {ticker}"))
         return {"ticker": ticker, "company_name": ticker, "short_name": ticker}
 
 
@@ -927,13 +1124,20 @@ def convert_yahoo_ticker_to_coingecko_id(yahoo_ticker: str, original_input: str 
         model = gemini_config.model
         api_base = gemini_config.api_base
     except Exception:
-            # Fallback to environment variables if config not available
-            api_key = os.getenv("GEMINI_API_KEY") or "" or ""
-            model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
-            api_base = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
+        # Fallback if config not available
+        api_key = ""
+        model = "gemini-2.5-flash-lite"
+        api_base = "https://generativelanguage.googleapis.com/v1beta"
     
     # URL will be built when api_key is present
     url = f"{api_base}/models/{model}:generateContent?key={api_key}" if api_key else ""
+    # Sanitize URL for any potential logging/debug output
+    try:
+        from .sanitization import sanitize_url
+        if url:
+            sanitized_url = sanitize_url(url)
+    except ImportError:
+        sanitized_url = url if url else ""
 
     # Remove the -USD suffix
     if yahoo_ticker.endswith('-USD'):
@@ -975,9 +1179,16 @@ def convert_yahoo_ticker_to_coingecko_id(yahoo_ticker: str, original_input: str 
                 }
             }
 
+        def make_gemini_request():
             r = requests.post(url, json=body, timeout=30)
             r.raise_for_status()
-            data = r.json()
+            return r.json()
+        
+        try:
+            data = safe_gemini_call(make_gemini_request, timeout_seconds=35)
+        except TimeoutError as e:
+            print(_sanitize_print_error(e, "Gemini API request timed out"))
+            return ""
 
             # Extract the coin ID from Gemini response
             coin_id = data["candidates"][0]["content"]["parts"][0]["text"].strip().lower()
@@ -990,7 +1201,7 @@ def convert_yahoo_ticker_to_coingecko_id(yahoo_ticker: str, original_input: str 
                 return coin_id
 
     except Exception as e:
-        print(f"Gemini coin ID resolution failed for {search_term}: {e}")
+        print(_sanitize_print_error(e, f"Gemini coin ID resolution failed for {search_term}"))
 
     # Fallback: Try web search
     try:
@@ -1039,7 +1250,7 @@ def convert_yahoo_ticker_to_coingecko_id(yahoo_ticker: str, original_input: str 
                     return parsed_coin_id
 
     except Exception as e:
-        print(f"Web search coin ID resolution failed for {search_term}: {e}")
+        print(_sanitize_print_error(e, f"Web search coin ID resolution failed for {search_term}"))
 
     # Final fallback: return empty string if all resolution methods fail
     print(f"⚠ All resolution methods failed for {search_term}")
@@ -1066,9 +1277,9 @@ def get_crypto_info(ticker: str, original_input: str = "") -> Dict[str, Any]:
         demo_api_key = coingecko_config.demo_api_key
         pro_api_key = coingecko_config.pro_api_key
     except Exception:
-        # Fallback to environment variables if config not available
-                    demo_api_key = os.getenv("COINGECKO_DEMO_API_KEY") or ""
-                    pro_api_key = os.getenv("COINGECKO_API_KEY") or ""
+        # Fallback if config not available
+        demo_api_key = ""
+        pro_api_key = ""
 
     try:
         if CoinGeckoAPI is None:
@@ -1086,8 +1297,15 @@ def get_crypto_info(ticker: str, original_input: str = "") -> Dict[str, Any]:
         # CoinGecko uses coin IDs (like 'bitcoin') rather than symbols
         coin_id = convert_yahoo_ticker_to_coingecko_id(ticker, original_input)
 
-        # Get coin data
-        coin_data = client.coins.get_id(id=coin_id)
+        # Get coin data with timeout
+        try:
+            def get_coin_data():
+                return client.coins.get_id(id=coin_id)
+            
+            coin_data = safe_coingecko_call(get_coin_data, timeout_seconds=20)
+        except TimeoutError as e:
+            print(_sanitize_print_error(e, f"CoinGecko API timed out for {coin_id}"))
+            raise
 
         # Extract data with proper attribute access
         market_data = getattr(coin_data, 'market_data', None)
@@ -1138,7 +1356,7 @@ def get_crypto_info(ticker: str, original_input: str = "") -> Dict[str, Any]:
         # Re-raise validation errors to ensure proper input validation
         raise e
     except Exception as e:
-        print(f"Error getting crypto info for {ticker}: {e}")
+        print(_sanitize_print_error(e, f"Error getting crypto info for {ticker}"))
 
         # Try to search for the coin if direct lookup fails
         try:
@@ -1151,61 +1369,71 @@ def get_crypto_info(ticker: str, original_input: str = "") -> Dict[str, Any]:
                 else:
                     client = CoinGeckoAPI()
 
-                search_results = client.search.get(query=original_input if original_input else ticker)
-                coins = getattr(search_results, 'coins', [])
+                try:
+                    def search_coins():
+                        return client.search.get(query=original_input if original_input else ticker)
+                    
+                    search_results = safe_coingecko_call(search_coins, timeout_seconds=15)
+                    coins = getattr(search_results, 'coins', [])
 
-                if coins:
-                    # Use the first result
-                    first_coin = coins[0]
-                    coin_id = getattr(first_coin, 'id', None)
+                    if coins:
+                        # Use the first result
+                        first_coin = coins[0]
+                        coin_id = getattr(first_coin, 'id', None)
 
-                    if coin_id:
-                        coin_data = client.coins.get_id(id=coin_id)
+                        if coin_id:
+                            def get_coin_by_id():
+                                return client.coins.get_id(id=coin_id)
+                            
+                            coin_data = safe_coingecko_call(get_coin_by_id, timeout_seconds=20)
+                            
+                            # Extract data with proper attribute access
+                            market_data = getattr(coin_data, 'market_data', None)
 
-                        # Extract data with proper attribute access
-                        market_data = getattr(coin_data, 'market_data', None)
+                            current_price_usd = 0
+                            market_cap_usd = 0
+                            total_volume_usd = 0
+                            price_change_percentage_24h = 0
+                            price_change_percentage_7d = 0
+                            circulating_supply = 0
+                            total_supply = 0
 
-                        current_price_usd = 0
-                        market_cap_usd = 0
-                        total_volume_usd = 0
-                        price_change_percentage_24h = 0
-                        price_change_percentage_7d = 0
-                        circulating_supply = 0
-                        total_supply = 0
+                            if market_data:
+                                # Access nested attributes properly
+                                current_price = getattr(market_data, 'current_price', None)
+                                if current_price and hasattr(current_price, 'usd'):
+                                    current_price_usd = getattr(current_price, 'usd', 0)
 
-                        if market_data:
-                            # Access nested attributes properly
-                            current_price = getattr(market_data, 'current_price', None)
-                            if current_price and hasattr(current_price, 'usd'):
-                                current_price_usd = getattr(current_price, 'usd', 0)
+                                market_cap = getattr(market_data, 'market_cap', None)
+                                if market_cap and hasattr(market_cap, 'usd'):
+                                    market_cap_usd = getattr(market_cap, 'usd', 0)
 
-                            market_cap = getattr(market_data, 'market_cap', None)
-                            if market_cap and hasattr(market_cap, 'usd'):
-                                market_cap_usd = getattr(market_cap, 'usd', 0)
+                                total_volume = getattr(market_data, 'total_volume', None)
+                                if total_volume and hasattr(total_volume, 'usd'):
+                                    total_volume_usd = getattr(total_volume, 'usd', 0)
 
-                            total_volume = getattr(market_data, 'total_volume', None)
-                            if total_volume and hasattr(total_volume, 'usd'):
-                                total_volume_usd = getattr(total_volume, 'usd', 0)
+                                price_change_percentage_24h = getattr(market_data, 'price_change_percentage_24h', 0)
+                                price_change_percentage_7d = getattr(market_data, 'price_change_percentage_7d', 0)
+                                circulating_supply = getattr(market_data, 'circulating_supply', 0)
+                                total_supply = getattr(market_data, 'total_supply', 0)
 
-                            price_change_percentage_24h = getattr(market_data, 'price_change_percentage_24h', 0)
-                            price_change_percentage_7d = getattr(market_data, 'price_change_percentage_7d', 0)
-                            circulating_supply = getattr(market_data, 'circulating_supply', 0)
-                            total_supply = getattr(market_data, 'total_supply', 0)
-
-                        return {
-                            "ticker": ticker.upper(),
-                            "coin_id": coin_id,
-                            "name": getattr(coin_data, 'name', ticker),
-                            "symbol": getattr(coin_data, 'symbol', ticker).upper(),
-                            "market_cap_usd": market_cap_usd,
-                            "current_price_usd": current_price_usd,
-                            "price_change_percentage_24h": price_change_percentage_24h,
-                            "price_change_percentage_7d": price_change_percentage_7d,
-                            "total_volume_usd": total_volume_usd,
-                            "circulating_supply": circulating_supply,
-                            "total_supply": total_supply,
-                            "last_updated": datetime.now()
-                        }
+                            return {
+                                "ticker": ticker.upper(),
+                                "coin_id": coin_id,
+                                "name": getattr(coin_data, 'name', ticker),
+                                "symbol": getattr(coin_data, 'symbol', ticker).upper(),
+                                "market_cap_usd": market_cap_usd,
+                                "current_price_usd": current_price_usd,
+                                "price_change_percentage_24h": price_change_percentage_24h,
+                                "price_change_percentage_7d": price_change_percentage_7d,
+                                "total_volume_usd": total_volume_usd,
+                                "circulating_supply": circulating_supply,
+                                "total_supply": total_supply,
+                                "last_updated": datetime.now()
+                            }
+                except TimeoutError as e:
+                    print(f"CoinGecko search fallback timed out for {ticker}: {e}")
+                    raise
 
         except Exception as search_e:
             print(f"Crypto search fallback failed for {ticker}: {search_e}")

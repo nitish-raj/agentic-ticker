@@ -359,9 +359,6 @@ The LLM serves as the central orchestrator in a continuous loop:
    # Option A: Using config.yaml (Recommended)
    # Edit config.yaml with your Google Gemini API key
    
-   # Option B: Using Environment Variables (Legacy)
-   cp .env.example .env
-   # Edit .env with your Google Gemini API key
    ```
 
 3. **Install Python dependencies:**
@@ -446,7 +443,7 @@ Input: "BTC"
 │   ├── contract/            # Contract tests for utility modules
 │   └── integration/         # Integration tests for refactored modules
 ├── .devcontainer/             # Development container configuration
-├── .env.example              # Environment variables template
+
 ├── .gitignore               # Git ignore rules
 ├── AGENTS.md                # Agent documentation
 ├── MIGRATION_GUIDE.md       # Migration guide for refactored code

@@ -5,10 +5,7 @@ import os
 # Add the src directory to the Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-# Set up mock environment variables for testing
-os.environ['GEMINI_API_KEY'] = 'test_api_key'
-os.environ['GEMINI_MODEL'] = 'test_model'
-os.environ['GEMINI_API_BASE'] = 'https://test.api.com'
+# Note: Environment variables are no longer used. Tests should use config.yaml or mock the config system.
 
 @pytest.fixture
 def sample_price_data():

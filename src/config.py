@@ -41,16 +41,7 @@ class GeminiConfig:
     max_tokens: int = 8192
     timeout: int = 120
 
-    def __post_init__(self):
-        """Load from environment variables if not provided."""
-        if not self.api_key:
-            self.api_key = os.getenv("GEMINI_API_KEY", "")
-        if not self.model:
-            self.model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
-        if not self.api_base:
-            self.api_base = os.getenv(
-                "GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta"
-            )
+    
 
 
 @dataclass
@@ -61,12 +52,7 @@ class CoinGeckoConfig:
     environment: str = "demo"
     timeout: int = 30
 
-    def __post_init__(self):
-        """Load from environment variables if not provided."""
-        if not self.demo_api_key:
-            self.demo_api_key = os.getenv("COINGECKO_DEMO_API_KEY", "")
-        if not self.pro_api_key:
-            self.pro_api_key = os.getenv("COINGECKO_API_KEY", "")
+    
 
 
 @dataclass
@@ -108,13 +94,7 @@ class LoggingConfig:
     max_file_size: int = 10485760  # 10MB
     backup_count: int = 5
 
-    def __post_init__(self):
-        """Load from environment variables if not provided."""
-        if log_level := os.getenv("LOG_LEVEL"):
-            try:
-                self.level = LogLevel(log_level.upper())
-            except ValueError:
-                pass
+    
 
 
 @dataclass
@@ -131,26 +111,7 @@ class FeatureFlags:
     enable_error_handling: bool = True
     enable_validation: bool = True
 
-    def __post_init__(self):
-        """Load from environment variables if not provided."""
-        flag_mappings = {
-            "ENABLE_WEB_SEARCH": "enable_web_search",
-            "ENABLE_CRYPTO_ANALYSIS": "enable_crypto_analysis",
-            "ENABLE_STOCK_ANALYSIS": "enable_stock_analysis",
-            "ENABLE_FORECASTING": "enable_forecasting",
-            "ENABLE_TECHNICAL_INDICATORS": "enable_technical_indicators",
-            "ENABLE_ANIMATIONS": "enable_animations",
-            "ENABLE_CACHING": "enable_caching",
-            "ENABLE_RETRY_LOGIC": "enable_retry_logic",
-            "ENABLE_ERROR_HANDLING": "enable_error_handling",
-            "ENABLE_VALIDATION": "enable_validation",
-        }
-
-        for env_var, attr_name in flag_mappings.items():
-            if env_value := os.getenv(env_var):
-                setattr(
-                    self, attr_name, env_value.lower() in ("true", "1", "yes", "on")
-                )
+    
 
 
 @dataclass
@@ -165,6 +126,27 @@ class UIConfig:
 
 
 @dataclass
+class CORSConfig:
+    """CORS configuration for FastAPI backend."""
+    allowed_origins: List[str] = field(default_factory=lambda: [
+        "http://localhost:8501",  # Default Streamlit local port
+        "http://localhost:3000",  # Common development port
+        "http://127.0.0.1:8501",  # Alternative localhost
+        "http://127.0.0.1:3000",  # Alternative localhost
+    ])
+    allowed_methods: List[str] = field(default_factory=lambda: [
+        "GET", "POST", "PUT", "DELETE", "OPTIONS"
+    ])
+    allowed_headers: List[str] = field(default_factory=lambda: [
+        "Content-Type", "Authorization", "X-Requested-With"
+    ])
+    allow_credentials: bool = True
+    max_age: int = 600  # 10 minutes
+
+    
+
+
+@dataclass
 class AppConfig:
     """Main application configuration."""
     gemini: GeminiConfig = field(default_factory=GeminiConfig)
@@ -175,6 +157,7 @@ class AppConfig:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     feature_flags: FeatureFlags = field(default_factory=FeatureFlags)
     ui: UIConfig = field(default_factory=UIConfig)
+    cors: CORSConfig = field(default_factory=CORSConfig)
 
     # Configuration file settings
     config_file_path: Optional[str] = None
@@ -245,6 +228,7 @@ class AppConfig:
             ("logging", self.logging),
             ("feature_flags", self.feature_flags),
             ("ui", self.ui),
+            ("cors", self.cors),
         ]:
             if section_name in data and isinstance(data[section_name], dict):
                 for key, value in data[section_name].items():
@@ -255,7 +239,7 @@ class AppConfig:
         for key, value in data.items():
             if key not in [s[0] for s in [
                 ("gemini",), ("coingecko",), ("yahoo_finance",), ("ddg",),
-                ("analysis",), ("logging",), ("feature_flags",), ("ui",),
+                ("analysis",), ("logging",), ("feature_flags",), ("ui",), ("cors",),
             ]] and hasattr(self, key):
                 setattr(self, key, value)
 
@@ -287,19 +271,79 @@ class AppConfig:
         except Exception as e:
             logging.error(f"Failed to save config to {file_path}: {e}")
 
-    def validate(self) -> List[str]:
-        """Validate configuration and return list of errors."""
+    def validate(self) -> tuple[List[str], List[str]]:
+        """Validate configuration and return (errors, warnings)."""
         errors = []
+        warnings = []
 
-        # Validate Gemini configuration (optional - functions can work without it)
-        # if not self.gemini.api_key:
-        #     errors.append("GEMINI_API_KEY is required")
+        # Check if validation is enabled
+        if not self.feature_flags.enable_validation:
+            return errors, warnings
 
+        # Determine if we're in demo/live mode based on available API keys
+        has_gemini_key = bool(self.gemini.api_key)
+        has_coingecko_key = bool(self.coingecko.demo_api_key or self.coingecko.pro_api_key)
+        live_mode = has_gemini_key or has_coingecko_key
+
+        # Validate Gemini configuration
         if self.gemini.temperature < 0 or self.gemini.temperature > 2:
             errors.append("Gemini temperature must be between 0 and 2")
 
         if self.gemini.timeout <= 0:
             errors.append("Gemini timeout must be positive")
+
+        if self.gemini.max_tokens <= 0:
+            errors.append("Gemini max_tokens must be positive")
+
+        # Validate Gemini API base URL format
+        if self.gemini.api_base and not self._is_valid_url(self.gemini.api_base):
+            errors.append("Gemini API base URL is invalid")
+
+        # Gemini API key validation (conditional based on mode)
+        if not has_gemini_key:
+            if live_mode:
+                errors.append(
+                    "GEMINI_API_KEY is required for live mode. "
+                    "Set it via environment variable or config file."
+                )
+            else:
+                warnings.append(
+                    "GEMINI_API_KEY not set - running in demo mode. "
+                    "Some features will be limited."
+                )
+
+        # Validate CoinGecko configuration
+        if self.coingecko.timeout <= 0:
+            errors.append("CoinGecko timeout must be positive")
+
+        if not has_coingecko_key and self.feature_flags.enable_crypto_analysis:
+            if live_mode:
+                warnings.append(
+                    "CoinGecko API key not set - crypto analysis will use "
+                    "demo mode with rate limits."
+                )
+            else:
+                warnings.append(
+                    "CoinGecko API key not set - crypto features will be "
+                    "limited in demo mode."
+                )
+
+        # Validate Yahoo Finance configuration
+        if self.yahoo_finance.timeout <= 0:
+            errors.append("Yahoo Finance timeout must be positive")
+
+        if self.yahoo_finance.retry_attempts < 0:
+            errors.append("Yahoo Finance retry_attempts must be non-negative")
+
+        if self.yahoo_finance.retry_delay < 0:
+            errors.append("Yahoo Finance retry_delay must be non-negative")
+
+        # Validate DDG configuration
+        if self.ddg.max_results <= 0:
+            errors.append("DuckDuckGo max_results must be positive")
+
+        if self.ddg.timeout <= 0:
+            errors.append("DuckDuckGo timeout must be positive")
 
         # Validate analysis configuration
         if self.analysis.default_days <= 0:
@@ -311,6 +355,21 @@ class AppConfig:
         if self.analysis.default_forecast_days <= 0:
             errors.append("Default forecast days must be positive")
 
+        if self.analysis.max_analysis_steps <= 0:
+            errors.append("Max analysis steps must be positive")
+
+        if self.analysis.min_data_points <= 0:
+            errors.append("Min data points must be positive")
+
+        if self.analysis.volatility_window <= 0:
+            errors.append("Volatility window must be positive")
+
+        if self.analysis.ma5_window <= 0:
+            errors.append("MA5 window must be positive")
+
+        if self.analysis.ma10_window <= 0:
+            errors.append("MA10 window must be positive")
+
         # Validate logging configuration
         if self.logging.file_path:
             log_dir = os.path.dirname(self.logging.file_path)
@@ -320,7 +379,148 @@ class AppConfig:
                 except OSError:
                     errors.append(f"Cannot create log directory: {log_dir}")
 
-        return errors
+            if self.logging.max_file_size <= 0:
+                errors.append("Max file size must be positive")
+
+            if self.logging.backup_count < 0:
+                errors.append("Backup count must be non-negative")
+
+        # Validate UI configuration
+        if self.ui.chart_height <= 0:
+            errors.append("Chart height must be positive")
+
+        if self.ui.animation_duration < 0:
+            errors.append("Animation duration must be non-negative")
+
+        if self.ui.transition_duration < 0:
+            errors.append("Transition duration must be non-negative")
+
+        # Validate CORS configuration
+        if not self.cors.allowed_origins:
+            errors.append("CORS allowed_origins cannot be empty")
+
+        if not self.cors.allowed_methods:
+            errors.append("CORS allowed_methods cannot be empty")
+
+        if self.cors.max_age < 0:
+            errors.append("CORS max_age must be non-negative")
+
+        # Validate configuration file settings
+        if self.hot_reload_interval <= 0:
+            errors.append("Hot reload interval must be positive")
+
+        # Feature-specific validation
+        if self.feature_flags.enable_forecasting and not has_gemini_key:
+            warnings.append(
+                "Forecasting is enabled but Gemini API key is not set - "
+                "forecasting will use mock data."
+            )
+
+        if self.feature_flags.enable_web_search and not self.ddg.max_results:
+            warnings.append(
+                "Web search is enabled but max_results is 0 - "
+                "search will return no results."
+            )
+
+        return errors, warnings
+
+    def _is_valid_url(self, url: str) -> bool:
+        """Check if a URL is valid."""
+        import re
+        url_pattern = re.compile(
+            r'^https?://'  # http:// or https://
+            r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain...
+            r'localhost|'  # localhost...
+            r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
+            r'(?::\d+)?'  # optional port
+            r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+        return url_pattern.match(url) is not None
+
+    def validate_runtime_change(self, section: str, key: str, value: Any) -> tuple[bool, str]:
+        """Validate a runtime configuration change."""
+        try:
+            # Validate based on section and key
+            if section == "gemini":
+                if key == "temperature":
+                    if not (0 <= float(value) <= 2):
+                        return False, "Gemini temperature must be between 0 and 2"
+                elif key == "timeout":
+                    if int(value) <= 0:
+                        return False, "Gemini timeout must be positive"
+                elif key == "max_tokens":
+                    if int(value) <= 0:
+                        return False, "Gemini max_tokens must be positive"
+                elif key == "api_base":
+                    if not self._is_valid_url(str(value)):
+                        return False, "Gemini API base URL is invalid"
+
+            elif section == "analysis":
+                if key in [
+                    "default_days", "default_forecast_days", "max_analysis_steps",
+                    "min_data_points", "volatility_window", "ma5_window", "ma10_window"
+                ]:
+                    if int(value) <= 0:
+                        return False, f"{key} must be positive"
+                elif key == "default_threshold":
+                    if float(value) <= 0:
+                        return False, "Default threshold must be positive"
+
+            elif section == "ui":
+                if key == "chart_height":
+                    if int(value) <= 0:
+                        return False, "Chart height must be positive"
+                elif key in ["animation_duration", "transition_duration"]:
+                    if int(value) < 0:
+                        return False, f"{key} must be non-negative"
+
+            elif section == "cors":
+                if key == "max_age":
+                    if int(value) < 0:
+                        return False, "CORS max_age must be non-negative"
+                elif key == "allowed_origins" and not value:
+                    return False, "CORS allowed_origins cannot be empty"
+                elif key == "allowed_methods" and not value:
+                    return False, "CORS allowed_methods cannot be empty"
+
+            return True, "Valid"
+        except (ValueError, TypeError) as e:
+            return False, f"Invalid value type: {str(e)}"
+
+    def get_mode_info(self) -> Dict[str, Any]:
+        """Get information about current mode and available features."""
+        has_gemini_key = bool(self.gemini.api_key)
+        has_coingecko_key = bool(self.coingecko.demo_api_key or self.coingecko.pro_api_key)
+
+        mode = "demo"
+        if has_gemini_key and has_coingecko_key:
+            mode = "full"
+        elif has_gemini_key or has_coingecko_key:
+            mode = "partial"
+
+        available_features = []
+        limited_features = []
+
+        if has_gemini_key:
+            available_features.extend(["AI Analysis", "Forecasting", "Smart Validation"])
+        else:
+            limited_features.append("AI Analysis (mock data)")
+            limited_features.append("Forecasting (mock data)")
+
+        if has_coingecko_key:
+            available_features.append("Crypto Analysis (full)")
+        else:
+            limited_features.append("Crypto Analysis (demo/rate limited)")
+
+        available_features.extend(["Stock Analysis", "Technical Indicators"])
+
+        return {
+            "mode": mode,
+            "has_gemini_key": has_gemini_key,
+            "has_coingecko_key": has_coingecko_key,
+            "available_features": available_features,
+            "limited_features": limited_features,
+            "enable_validation": self.feature_flags.enable_validation
+        }
 
     def get_env_vars(self) -> Dict[str, str]:
         """Get environment variables representation of configuration."""
@@ -342,7 +542,11 @@ class AppConfig:
 
         # Logging configuration
         if self.logging.level:
-            level_value = self.logging.level.value if hasattr(self.logging.level, 'value') else self.logging.level
+            level_value = (
+                self.logging.level.value
+                if hasattr(self.logging.level, 'value')
+                else self.logging.level
+            )
             env_vars["LOG_LEVEL"] = level_value
 
         # Feature flags
@@ -362,6 +566,16 @@ class AppConfig:
         for attr_name, env_var in flag_mappings.items():
             value = getattr(self.feature_flags, attr_name)
             env_vars[env_var] = str(value).lower()
+
+        # CORS configuration
+        if self.cors.allowed_origins:
+            env_vars["CORS_ALLOWED_ORIGINS"] = ",".join(self.cors.allowed_origins)
+        if self.cors.allowed_methods:
+            env_vars["CORS_ALLOWED_METHODS"] = ",".join(self.cors.allowed_methods)
+        if self.cors.allowed_headers:
+            env_vars["CORS_ALLOWED_HEADERS"] = ",".join(self.cors.allowed_headers)
+        env_vars["CORS_ALLOW_CREDENTIALS"] = str(self.cors.allow_credentials).lower()
+        env_vars["CORS_MAX_AGE"] = str(self.cors.max_age)
 
         return env_vars
 
@@ -389,13 +603,29 @@ def load_config(config_file_path: Optional[str] = None) -> AppConfig:
     config = AppConfig(config_file_path=config_file_path)
 
     # Validate configuration
-    errors = config.validate()
+    errors, warnings = config.validate()
+
+    # Handle warnings first
+    if warnings:
+        warning_msg = "Configuration warnings:\n" + "\n".join(
+            f"  - {warning}" for warning in warnings
+        )
+        logging.warning(warning_msg)
+
+    # Handle errors
     if errors:
         error_msg = "Configuration validation failed:\n" + "\n".join(
             f"  - {error}" for error in errors
         )
+        # Add helpful guidance
+        error_msg += "\n\nTo fix configuration issues:"
+        error_msg += "\n1. Update config.yaml with required settings"
+        error_msg += "\n2. Run in demo mode by omitting API keys for limited functionality"
+
         if config.feature_flags.enable_error_handling:
             logging.error(error_msg)
+            # In error handling mode, we still set the config but log the error
+            # This allows the app to run with degraded functionality
         else:
             raise ValueError(error_msg)
 
@@ -426,7 +656,7 @@ def setup_logging(config: Optional[LoggingConfig] = None) -> None:
             backupCount=config.backup_count
         )
         file_handler.setFormatter(logging.Formatter(config.format))
-        
+
         # Handle both enum and string values for file handler level
         level_value = config.level.value if hasattr(config.level, 'value') else config.level
         file_handler.setLevel(getattr(logging, level_value.upper()))
@@ -435,14 +665,8 @@ def setup_logging(config: Optional[LoggingConfig] = None) -> None:
         logging.getLogger().addHandler(file_handler)
 
 
-def get_env_var(key: str, default: Optional[str] = None) -> Optional[str]:
-    """Get environment variable with fallback to configuration."""
-    # First try environment variable
-    value = os.getenv(key)
-    if value is not None:
-        return value
-
-    # Fallback to configuration
+def get_config_var(key: str, default: Optional[str] = None) -> Optional[str]:
+    """Get configuration variable."""
     config = get_config()
     env_vars = config.get_env_vars()
     return env_vars.get(key, default)

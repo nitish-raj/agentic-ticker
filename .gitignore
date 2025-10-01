@@ -1,5 +1,5 @@
 .env
-config.yaml
+**/config.yaml
 __pychache__
 **.pyc
 __pycache__/

@@ -77,16 +77,21 @@ class SearchUtils:
         self._setup_gemini_config()
 
     def _setup_gemini_config(self) -> None:
-        """Setup Gemini API configuration from environment variables."""
-        self.gemini_api_key = os.getenv("GEMINI_API_KEY")
-        self.gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-        self.gemini_api_base = os.getenv(
-            "GEMINI_API_BASE",
-            "https://generativelanguage.googleapis.com/v1beta"
-        )
+        """Setup Gemini API configuration from config.yaml."""
+        try:
+            from .config import get_config
+            config = get_config()
+            self.gemini_api_key = config.gemini.api_key
+            self.gemini_model = config.gemini.model
+            self.gemini_api_base = config.gemini.api_base
+        except ImportError:
+            # Fallback if config not available
+            self.gemini_api_key = ""
+            self.gemini_model = "gemini-2.0-flash"
+            self.gemini_api_base = "https://generativelanguage.googleapis.com/v1beta"
 
         if not self.gemini_api_key:
-            logger.warning("GEMINI_API_KEY not found in environment variables")
+            logger.warning("GEMINI_API_KEY not found in configuration")
 
     @handle_errors(default_return=[], log_errors=True)
     @log_execution(include_args=False, include_result=False)
@@ -261,6 +266,12 @@ class SearchUtils:
             f"{self.gemini_api_base}/models/{self.gemini_model}:"
             f"generateContent?key={self.gemini_api_key}"
         )
+        # Sanitize URL for any potential logging/debug output
+        try:
+            from .sanitization import sanitize_url
+            sanitized_url = sanitize_url(url)
+        except ImportError:
+            sanitized_url = url
         body = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {
@@ -270,7 +281,9 @@ class SearchUtils:
         }
 
         try:
-            response = requests.post(url, json=body, timeout=self.config.timeout)
+            # Use a longer timeout than the config to account for processing time
+            actual_timeout = min(self.config.timeout + 10, 60)
+            response = requests.post(url, json=body, timeout=actual_timeout)
             response.raise_for_status()
             data = response.json()
 
@@ -278,6 +291,8 @@ class SearchUtils:
             text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
             return text
 
+        except requests.exceptions.Timeout as e:
+            raise SearchError(f"Gemini API request timed out after {actual_timeout} seconds: {e}")
         except requests.RequestException as e:
             raise SearchError(f"Gemini API request failed: {e}")
         except (KeyError, IndexError) as e:

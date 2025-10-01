@@ -4,20 +4,36 @@ import logging
 from functools import wraps
 from datetime import datetime
 
-from .planner import GeminiPlanner
-from .services import (
-    validate_ticker,
-    get_company_info,
-    get_crypto_info,
-    load_prices,
-    load_crypto_prices,
-    compute_indicators,
-    detect_events,
-    forecast_prices,
-    build_report,
-    ddgs_search
-)
-from .json_helpers import _json_safe, _format_json_for_display
+try:
+    from planner import GeminiPlanner
+    from services import (
+        validate_ticker,
+        get_company_info,
+        get_crypto_info,
+        load_prices,
+        load_crypto_prices,
+        compute_indicators,
+        detect_events,
+        forecast_prices,
+        build_report,
+        ddgs_search
+    )
+    from json_helpers import _json_safe, _format_json_for_display
+except ImportError:
+    from .planner import GeminiPlanner
+    from .services import (
+        validate_ticker,
+        get_company_info,
+        get_crypto_info,
+        load_prices,
+        load_crypto_prices,
+        compute_indicators,
+        detect_events,
+        forecast_prices,
+        build_report,
+        ddgs_search
+    )
+    from .json_helpers import _json_safe, _format_json_for_display
 
 
 # Handle optional streamlit import with proper typing
@@ -34,10 +50,11 @@ logger = logging.getLogger(__name__)
 # Utility functions for error handling and sanitization
 def sanitize_error_message(error_msg: str) -> str:
     """Sanitize error messages to remove sensitive information like API keys"""
-    # Remove API keys from error messages
-    api_key_pattern = r'key=[^&\s]+'
-    sanitized = re.sub(api_key_pattern, 'key=[REDACTED]', error_msg)
-    return sanitized
+    try:
+        from sanitization import sanitize_error_message as sanitize
+    except ImportError:
+        from .sanitization import sanitize_error_message as sanitize
+    return sanitize(error_msg)
 
 # Decorators for cross-cutting concerns
 def handle_errors(func):
@@ -101,28 +118,41 @@ def update_session_state(context: Dict[str, Any]) -> None:
         return
     
     try:
+        # Collect all updates atomically
+        updates = {}
+        
         # Handle both stock and crypto price data
         if context.get("load_prices"):
-            st.session_state.price_data = context["load_prices"]
+            updates["price_data"] = context["load_prices"]
         elif context.get("load_crypto_prices"):
-            st.session_state.price_data = context["load_crypto_prices"]
+            updates["price_data"] = context["load_crypto_prices"]
             
         if context.get("compute_indicators"):
-            st.session_state.indicator_data = context["compute_indicators"]
+            updates["indicator_data"] = context["compute_indicators"]
         if context.get("detect_events"):
-            st.session_state.events = context["detect_events"]
+            updates["events"] = context["detect_events"]
         if context.get("forecast_prices"):
-            st.session_state.forecasts = context["forecast_prices"]
+            updates["forecasts"] = context["forecast_prices"]
         if context.get("build_report"):
-            st.session_state.report = context["build_report"]
+            updates["report"] = context["build_report"]
             # Mark analysis as completed when report is built
-            st.session_state.analysis_completed = True
+            updates["analysis_completed"] = True
             
         # Handle both company and crypto info
         if context.get("get_company_info"):
-            st.session_state.company_info = context["get_company_info"]
+            updates["company_info"] = context["get_company_info"]
         elif context.get("get_crypto_info"):
-            st.session_state.crypto_info = context["get_crypto_info"]
+            updates["crypto_info"] = context["get_crypto_info"]
+        
+        # Apply all updates atomically
+        if updates:
+            try:
+                from .session_state_manager import update_session_state
+                update_session_state(updates)
+            except ImportError:
+                # Fallback to direct session state access
+                for key, value in updates.items():
+                    st.session_state[key] = value
             
     except Exception as e:
         logger.warning(f"Failed to update session state: {e}")

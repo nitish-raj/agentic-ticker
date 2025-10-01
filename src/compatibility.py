@@ -41,24 +41,18 @@ class CompatibilityConfig:
         self.migration_deadline = datetime(2025, 12, 31)  # Deadline for migration
 
     @classmethod
-    def from_env(cls) -> 'CompatibilityConfig':
-        """Create configuration from environment variables"""
+    def from_config(cls) -> 'CompatibilityConfig':
+        """Create configuration from config.yaml or defaults"""
         config = cls()
-        config.enabled = os.getenv(
-            "COMPATIBILITY_ENABLED", "true"
-        ).lower() in ("true", "1", "yes")
-        config.show_deprecation_warnings = os.getenv(
-            "COMPATIBILITY_WARNINGS", "true"
-        ).lower() in ("true", "1", "yes")
-        config.strict_mode = os.getenv(
-            "COMPATIBILITY_STRICT", "false"
-        ).lower() in ("true", "1", "yes")
-        config.fallback_to_legacy = os.getenv(
-            "COMPATIBILITY_FALLBACK", "true"
-        ).lower() in ("true", "1", "yes")
-
-        # Parse migration deadline if provided
-        deadline_str = os.getenv("COMPATIBILITY_DEADLINE")
+        try:
+            from .config import get_config
+            app_config = get_config()
+            # For now, use defaults since compatibility config isn't in config.yaml yet
+            # This can be extended later if needed
+        except ImportError:
+            pass
+        
+        return config
         if deadline_str:
             try:
                 config.migration_deadline = datetime.fromisoformat(deadline_str)
@@ -71,7 +65,7 @@ class CompatibilityConfig:
 
 
 # Global configuration instance
-compatibility_config = CompatibilityConfig.from_env()
+compatibility_config = CompatibilityConfig.from_config()
 
 
 def check_version_compatibility(version: str) -> bool:

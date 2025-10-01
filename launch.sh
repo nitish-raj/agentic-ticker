@@ -42,7 +42,7 @@ ${GREEN}Options:${NC}
   -H, --host HOST         Host to bind to (default: localhost)
   -d, --dev               Development mode with auto-reload
   -t, --test              Test mode (dry run)
-  -s, --setup             Setup environment only (install dependencies, create .env)
+  -s, --setup             Setup environment only (install dependencies)
   -c, --check             Check prerequisites only
   -v, --verbose           Verbose output
   --no-venv               Skip virtual environment activation

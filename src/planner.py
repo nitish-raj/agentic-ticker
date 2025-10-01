@@ -2,12 +2,16 @@ import os
 import json
 import requests
 from typing import List, Dict, Any
-from .json_helpers import _dumps, _parse_json_strictish
-from .data_models import PlannerJSON, FunctionCall
+try:
+    from json_helpers import _dumps, _parse_json_strictish
+    from data_models import PlannerJSON, FunctionCall
+except ImportError:
+    from .json_helpers import _dumps, _parse_json_strictish
+    from .data_models import PlannerJSON, FunctionCall
 
 # Import configuration system
 try:
-    from config import get_config
+    from .config import get_config
 except ImportError:
     # Fallback for when running as script
     import sys
@@ -34,21 +38,21 @@ class GeminiPlanner:
             self.model = gemini_config.model
             self.api_base = gemini_config.api_base
         except Exception:
-            # Fallback to environment variables if config not available
-            self.api_key = os.getenv("GEMINI_API_KEY")
-            self.model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
-            self.api_base = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
+            # Fallback if config not available
+            self.api_key = ""
+            self.model = "gemini-2.5-flash-lite"
+            self.api_base = "https://generativelanguage.googleapis.com/v1beta"
         
         if not self.api_key:
             raise RuntimeError("GEMINI_API_KEY is required")
 
     def _sanitize_error_message(self, error_msg: str) -> str:
         """Sanitize error messages to remove sensitive information like API keys"""
-        import re
-        # Pattern to match API keys in URLs
-        api_key_pattern = r'key=[^&\s]+'
-        sanitized = re.sub(api_key_pattern, 'key=[REDACTED]', error_msg)
-        return sanitized
+        try:
+            from sanitization import sanitize_error_message
+        except ImportError:
+            from .sanitization import sanitize_error_message
+        return sanitize_error_message(error_msg)
 
     def plan(self, tools_spec: List[Dict[str, Any]], goal: str, transcript: List[Dict[str, Any]], days: int = 30, threshold: float = 2.0, forecast_days: int = 7, asset_type: str = "ambiguous") -> PlannerJSON:
         system = (
@@ -139,6 +143,12 @@ class GeminiPlanner:
         )
         payload_text = _dumps({"tools": tools_spec, "ticker_input": goal, "transcript": transcript})
         url = f"{self.api_base}/models/{self.model}:generateContent?key={self.api_key}"
+        # Sanitize URL for any potential logging/debug output
+        try:
+            from sanitization import sanitize_url
+        except ImportError:
+            from .sanitization import sanitize_url
+        sanitized_url = sanitize_url(url)
         body = {
             "system_instruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": payload_text}]}],
@@ -150,6 +160,9 @@ class GeminiPlanner:
         try:
             r = requests.post(url, json=body, timeout=120)
             r.raise_for_status()
+        except requests.exceptions.Timeout as e:
+            sanitized_error = self._sanitize_error_message(str(e))
+            raise RuntimeError(f"API request timed out after 120 seconds: {sanitized_error}") from e
         except requests.exceptions.RequestException as e:
             sanitized_error = self._sanitize_error_message(str(e))
             raise RuntimeError(f"API request failed: {sanitized_error}") from e
@@ -175,6 +188,9 @@ class GeminiPlanner:
             try:
                 rr = requests.post(url, json=repair_body, timeout=120)
                 rr.raise_for_status()
+            except requests.exceptions.Timeout as e:
+                sanitized_error = self._sanitize_error_message(str(e))
+                raise RuntimeError(f"API request timed out after 120 seconds (repair attempt): {sanitized_error}") from e
             except requests.exceptions.RequestException as e:
                 sanitized_error = self._sanitize_error_message(str(e))
                 raise RuntimeError(f"API request failed (repair attempt): {sanitized_error}") from e

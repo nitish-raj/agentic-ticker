@@ -18,6 +18,41 @@ import os
 # Add src directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Import configuration
+try:
+    from config import get_config
+except ImportError:
+    # Fallback for testing/development
+    def get_config():
+        class CORSConfig:
+            allowed_origins = [
+                "http://localhost:8501",
+                "http://localhost:3000", 
+                "http://127.0.0.1:8501",
+                "http://127.0.0.1:3000"
+            ]
+            allowed_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+            allowed_headers = ["Content-Type", "Authorization", "X-Requested-With"]
+            allow_credentials = True
+            max_age = 600
+        
+        class AppConfig:
+            cors = CORSConfig()
+        
+        return AppConfig()
+
+# CORS configuration helper
+def get_cors_config():
+    """Get CORS configuration from config.yaml."""
+    config = get_config()
+    return {
+        "allowed_origins": config.cors.allowed_origins,
+        "allowed_methods": config.cors.allowed_methods,
+        "allowed_headers": config.cors.allowed_headers,
+        "allow_credentials": config.cors.allow_credentials,
+        "max_age": config.cors.max_age
+    }
+
 # Import the progress tracking system
 try:
     from progress_tracker import get_progress_tracker, ProgressTracker
@@ -232,13 +267,15 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# Add CORS middleware
+# Add CORS middleware with secure configuration
+cors_config = get_cors_config()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=cors_config["allowed_origins"],
+    allow_credentials=cors_config["allow_credentials"],
+    allow_methods=cors_config["allowed_methods"],
+    allow_headers=cors_config["allowed_headers"],
+    max_age=cors_config["max_age"],
 )
 
 # In-memory storage for demonstration purposes

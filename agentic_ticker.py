@@ -12,6 +12,20 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
+# Import session state manager for thread-safe operations
+try:
+    from src.session_state_manager import (
+        session_manager, 
+        set_session_state, 
+        get_session_state, 
+        update_session_state, 
+        delete_session_state, 
+        clear_session_state
+    )
+except ImportError:
+    # Fallback if import fails - will be defined after streamlit import
+    session_manager = None
+
 # Load configuration from config.yaml
 try:
     import importlib.util
@@ -29,13 +43,31 @@ except Exception as e:
     print(f"Failed to load configuration: {e}")
     sys.exit(1)
 
-# Enable compatibility mode
+# Enable compatibility mode (temporarily, will be moved to config.yaml later)
+import os
 os.environ['COMPATIBILITY_ENABLED'] = 'true'
 
 # Now import other modules that might depend on environment variables
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
+
+# Define fallback session state functions if import failed
+if session_manager is None:
+    def set_session_state(key, value): 
+        st.session_state[key] = value
+    def get_session_state(key, default=None): 
+        return st.session_state.get(key, default)
+    def update_session_state(updates): 
+        for k, v in updates.items(): 
+            st.session_state[k] = v
+    def delete_session_state(keys): 
+        for key in keys: 
+            if key in st.session_state: 
+                del st.session_state[key]
+    def clear_session_state(): 
+        for key in list(st.session_state.keys()): 
+            del st.session_state[key]
 
 # ---------------------
 # Compatibility Layer
@@ -195,12 +227,7 @@ def create_mock_data():
     return price_data, indicator_data, events, forecasts
 
 def check_api_key_availability():
-    """Check if Gemini API key is available from environment or config"""
-    # Check environment variables first
-    api_key = os.getenv("GEMINI_API_KEY")
-    if api_key:
-        return True, "environment"
-    
+    """Check if Gemini API key is available from config.yaml"""
     # Check configuration system
     try:
         import importlib.util
@@ -340,7 +367,7 @@ def main():
     st.markdown('<div class="sub-header">Intelligent Stock & Cryptocurrency Analysis powered by Agentic AI</div>', unsafe_allow_html=True)
     
     # Status indicator
-    is_mock_mode = MOCK_MODE or st.session_state.get('mock_mode_override', False)
+    is_mock_mode = MOCK_MODE or get_session_state('mock_mode_override', False)
     if is_mock_mode:
         st.markdown('<div class="status-badge status-demo">📊 Demo Mode - Educational Purpose Only</div>', unsafe_allow_html=True)
     else:
@@ -413,24 +440,25 @@ def main():
             reset_button = st.button("🔄 Reset", use_container_width=True)
         
         if reset_button:
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
+            clear_session_state()
             st.rerun()
 
     # Analysis execution section
     if analyze_button and ticker:
-        # Store parameters and set analysis running flag
-        st.session_state.analysis_params = {
-            'ticker': ticker,
-            'days': days,
-            'threshold': threshold,
-            'forecast_days': forecast_days
-        }
-        st.session_state.analysis_running = True
+        # Store parameters and set analysis running flag atomically
+        update_session_state({
+            'analysis_params': {
+                'ticker': ticker,
+                'days': days,
+                'threshold': threshold,
+                'forecast_days': forecast_days
+            },
+            'analysis_running': True
+        })
         st.rerun()
 
-    if st.session_state.get('analysis_running', False):
-        params = st.session_state.analysis_params
+    if get_session_state('analysis_running', False):
+        params = get_session_state('analysis_params')
         
         # Create progress containers
         progress_container = st.container()
@@ -457,16 +485,22 @@ def main():
                     print(f"🚀 Real orchestrator initialized successfully (API key from {source})")
                 else:
                     print("⚠️  API key not available, falling back to mock mode")
-                    print("💡 Tip: Create a .env file with GEMINI_API_KEY=<your_key>")
+                    print("💡 Tip: Add GEMINI_API_KEY to your config.yaml file")
                     orchestrator = create_mock_orchestrator()
                     # Update the global MOCK_MODE for UI consistency
-                    st.session_state.mock_mode_override = True
+                    set_session_state('mock_mode_override', True)
         except Exception as init_error:
-            print(f"❌ Failed to initialize orchestrator: {init_error}")
+            # Sanitize error message to prevent API key exposure
+            try:
+                from src.sanitization import sanitize_error_message
+                sanitized_error = sanitize_error_message(str(init_error))
+            except ImportError:
+                sanitized_error = str(init_error)
+            print(f"❌ Failed to initialize orchestrator: {sanitized_error}")
             print("⚠️  Falling back to mock mode")
             orchestrator = create_mock_orchestrator()
             # Update the global MOCK_MODE for UI consistency
-            st.session_state.mock_mode_override = True
+            set_session_state('mock_mode_override', True)
         
         # Event callback for progress updates
         def on_event(event):
@@ -518,35 +552,39 @@ def main():
                     params['forecast_days']
                 )
                 
-                # Store mock results in session state
-                st.session_state.price_data = price_data
-                st.session_state.indicator_data = indicator_data
-                st.session_state.events = events
-                st.session_state.forecasts = forecasts
-                st.session_state.report = report
+                # Store mock results in session state atomically
+                update_session_state({
+                    'price_data': price_data,
+                    'indicator_data': indicator_data,
+                    'events': events,
+                    'forecasts': forecasts,
+                    'report': report
+                })
             # For real mode, the orchestrator's update_session_state() function 
             # already populated the session state with real data
             
-            # Mark analysis as completed
-            st.session_state.analysis_completed = True
-            st.session_state.analysis_running = False
+            # Mark analysis as completed atomically
+            update_session_state({
+                'analysis_completed': True,
+                'analysis_running': False
+            })
             st.rerun()
             
         except Exception as e:
             st.error(f"Analysis failed: {str(e)}")
-            st.session_state.analysis_running = False
+            set_session_state('analysis_running', False)
             st.rerun()
 
     # Results display section
-    if st.session_state.get('analysis_completed', False):
+    if get_session_state('analysis_completed', False):
         st.header("📊 Analysis Results")
         
         # Create tabs for different result types
         tab_summary, tab_charts, tab_data, tab_report = st.tabs(["📋 Summary", "📈 Charts", "📊 Data", "📄 Full Report"])
         
         with tab_summary:
-            if st.session_state.get('report'):
-                report = st.session_state.report
+            report = get_session_state('report')
+            if report:
                 
                 # Key metrics in columns
                 col1, col2, col3 = st.columns(3)
@@ -582,11 +620,12 @@ def main():
         
         with tab_charts:
             # Price chart
-            if st.session_state.get('price_data'):
+            price_data = get_session_state('price_data')
+            if price_data:
                 try:
                     import plotly.graph_objects as go
                     
-                    df = pd.DataFrame(st.session_state.price_data)
+                    df = pd.DataFrame(price_data)
                     df['date'] = pd.to_datetime(df['date'])
                     
                     fig = go.Figure()
@@ -609,11 +648,12 @@ def main():
                     st.info("Plotly not available for charts. Install with: pip install plotly")
             
             # Forecast chart
-            if st.session_state.get('forecasts'):
+            forecasts = get_session_state('forecasts')
+            if forecasts:
                 try:
                     import plotly.graph_objects as go
                     
-                    df = pd.DataFrame(st.session_state.forecasts)
+                    df = pd.DataFrame(forecasts)
                     df['date'] = pd.to_datetime(df['date'])
                     
                     fig = go.Figure()
@@ -636,26 +676,30 @@ def main():
         
         with tab_data:
             # Display data in expandable sections
-            if st.session_state.get('price_data'):
+            price_data = get_session_state('price_data')
+            if price_data:
                 with st.expander("📈 Price Data"):
-                    st.dataframe(pd.DataFrame(st.session_state.price_data))
+                    st.dataframe(pd.DataFrame(price_data))
             
-            if st.session_state.get('indicator_data'):
+            indicator_data = get_session_state('indicator_data')
+            if indicator_data:
                 with st.expander("📊 Technical Indicators"):
-                    st.dataframe(pd.DataFrame(st.session_state.indicator_data))
+                    st.dataframe(pd.DataFrame(indicator_data))
             
-            if st.session_state.get('events'):
+            events = get_session_state('events')
+            if events:
                 with st.expander("⚡ Price Events"):
-                    st.dataframe(pd.DataFrame(st.session_state.events))
+                    st.dataframe(pd.DataFrame(events))
             
-            if st.session_state.get('forecasts'):
+            forecasts = get_session_state('forecasts')
+            if forecasts:
                 with st.expander("🔮 Forecasts"):
-                    st.dataframe(pd.DataFrame(st.session_state.forecasts))
+                    st.dataframe(pd.DataFrame(forecasts))
         
         with tab_report:
             # Display the comprehensive report
-            if st.session_state.get('report'):
-                report = st.session_state.report
+            report = get_session_state('report')
+            if report:
                 
                 # Asset Information
                 if 'asset_info' in report:
@@ -732,14 +776,14 @@ def main():
     with st.sidebar:
         st.header("🤖 System Information")
         
-        is_mock_mode = MOCK_MODE or st.session_state.get('mock_mode_override', False)
+        is_mock_mode = MOCK_MODE or get_session_state('mock_mode_override', False)
         if is_mock_mode:
             st.markdown('<div class="status-badge status-demo">Demo Mode</div>', unsafe_allow_html=True)
         else:
             st.markdown('<div class="status-badge" style="background-color: #e8f5e8; color: #2e7d32; border: 1px solid #c8e6c9;">Live Mode</div>', unsafe_allow_html=True)
         
         with st.expander("🔧 How This Works"):
-            is_mock_mode = MOCK_MODE or st.session_state.get('mock_mode_override', False)
+            is_mock_mode = MOCK_MODE or get_session_state('mock_mode_override', False)
             if is_mock_mode:
                 st.markdown("""
                 **Agentic AI Process**:
@@ -770,7 +814,7 @@ def main():
                 """)
         
         with st.expander("📊 Data Source"):
-            is_mock_mode = MOCK_MODE or st.session_state.get('mock_mode_override', False)
+            is_mock_mode = MOCK_MODE or get_session_state('mock_mode_override', False)
             if is_mock_mode:
                 st.write("Current session uses realistic mock data including:")
                 st.write("• 30 days of price history")

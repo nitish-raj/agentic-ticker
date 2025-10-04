@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any, Optional
 from pydantic import BaseModel
 
 
@@ -10,5 +10,3 @@ class FunctionCall(BaseModel):
 class PlannerJSON(BaseModel):
     call: Optional[FunctionCall] = None
     final: Optional[str] = None
-
-

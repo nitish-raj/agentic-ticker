@@ -8,6 +8,8 @@ Auto-generated from all feature plans. Last updated: 2025-09-21
 - Git workflow support
 - Python 3.11 + pandas, numpy, yfinance, feedparser, pydantic, Streamlit, Google Gemini API
 - N/A (in-memory processing with no persistent storage)
+- Python 3.11 + Streamlit, Google Gemini API, yfinance, pycoingecko, pandas, numpy, plotly, requests, ddgs (001-code-refactoring-modularization)
+- In-memory processing with no persistent storage (001-code-refactoring-modularization)
 
 ## Project Structure
 ```
@@ -27,20 +29,34 @@ specs/[###-feature]/
 
 ## Commands
 ```bash
+# Use virtual environment for all commands
+source .venv/bin/activate
+
 # Run all tests and linting
 .specify/scripts/bash/check-prerequisites.sh
 
 # Run single test (when implemented)
 pytest tests/unit/test_specific.py -v
+
+# Install packages (use venv)
+pip install -r requirements.txt
 ```
 
 ## Code Style
 Bash: Follow shellcheck conventions, use set -euo pipefail, quote variables
 
 ## Recent Changes
+- 001-code-refactoring-modularization: Added Python 3.11 + Streamlit, Google Gemini API, yfinance, pycoingecko, pandas, numpy, plotly, requests, ddgs
 - Added Python 3.11 + pandas, numpy, yfinance, feedparser, pydantic, Streamlit, Ollama
 - main: Added spec-driven development workflow
-- main: Implemented bash script infrastructure
+
+## ⚠️ CRITICAL: Configuration Policy
+**THIS REPOSITORY USES config.yaml ONLY - NO .env FILES**
+- **DO NOT** use .env files for configuration
+- **DO NOT** reference environment variables for API keys
+- **ONLY** use config.yaml for all configuration
+- All API keys must be set in config.yaml
+- Environment variable support was removed and must not be reintroduced
 
 ## Tool Usage Requirements
 - **Always use appropriate tools** to verify changes before considering work complete
@@ -53,6 +69,7 @@ Bash: Follow shellcheck conventions, use set -euo pipefail, quote variables
 - **Use subagents proactively** to divide complex tasks into parallel flows for concurrent execution
 - **Use MCP tools proactively** rather than reactively to maintain context and improve efficiency
 - **Execute independent tasks in parallel using subagents** whenever possible to reduce overall completion time
+- **ALWAYS use virtual environment**: Run `source .venv/bin/activate` before any Python commands or package installations
 
 ## Available MCP Tools
 

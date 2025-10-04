@@ -4,6 +4,56 @@
 
 A demonstration of Agentic AI principles through a stock and cryptocurrency analysis system powered by Google Gemini. This project showcases how AI agents autonomously plan, execute, and reason through complex analytical workflows. The only task of the LLM is to decide which functions to call and in what order. It does not write any code itself or perform any analysis directly. It simply orchestrates the available tools to achieve the desired outcome.
 
+## 🚀 Quick Start (Recommended)
+
+**Use our user-friendly launcher script for the easiest setup:**
+
+```bash
+# 1. Make launcher executable
+chmod +x launch.sh
+
+# 2. Run setup (installs dependencies, creates config.yaml file)
+./launch.sh -s
+
+# 3. Edit config.yaml with your Google Gemini API key
+nano config.yaml
+
+# 4. Start the application
+./launch.sh
+```
+
+**That's it!** Your browser will automatically open to http://localhost:8501
+
+For more launcher options, see [QUICK_START.md](QUICK_START.md) and [LAUNCHER_README.md](LAUNCHER_README.md).
+
+---
+
+### Manual Setup (Alternative)
+
+```bash
+# Option A: Using config.yaml (Recommended)
+# Edit config.yaml with your API key, then run:
+streamlit run agentic_ticker.py
+
+# Option B: Using Environment Variables (Legacy)
+export GEMINI_API_KEY="your-api-key-here"
+streamlit run agentic_ticker.py
+
+# Or run the FastAPI backend
+python src/main.py
+```
+
+## 🔄 Refactored Architecture
+
+The codebase has been completely refactored to eliminate code duplication and improve modularity. Key improvements include:
+
+- **Modular Design**: Functions organized into logical utility modules by purpose
+- **Code Reuse**: Common patterns extracted into reusable utilities and decorators
+- **Configuration Management**: Centralized configuration system with environment variable support
+- **Error Handling**: Consistent error handling patterns across all modules
+- **Performance**: Optimized with caching, lazy loading, and reduced memory footprint
+- **Backward Compatibility**: Existing code continues to work without modification
+
 ## 🎯 Overview
 
 Agentic-Ticker demonstrates how an LLM (Google Gemini) autonomously calls different functions to analyze assets:
@@ -225,7 +275,7 @@ The LLM serves as the central orchestrator in a continuous loop:
 │  │   Charts    │  │   Input     │  │   Logs      │        │
 │  └─────────────┘  └─────────────┘  └─────────────┘        │
 └─────────────────────────────────────────────────────────────┘
-                               │
+                                │
 ┌─────────────────────────────────────────────────────────────┐
 │                 LLM Orchestrator                            │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
@@ -233,12 +283,22 @@ The LLM serves as the central orchestrator in a continuous loop:
 │  │   Planner   │  │   Registry  │  │   Manager   │        │
 │  └─────────────┘  └─────────────┘  └─────────────┘        │
 └─────────────────────────────────────────────────────────────┘
-                               │
+                                │
 ┌─────────────────────────────────────────────────────────────┐
-│                 Available Functions                         │
+│              Refactored Utility Modules                     │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
 │  │   Search    │  │   Data      │  │  Analysis   │        │
-│  │   Tools     │  │   Loading   │  │   Tools     │        │
+│  │   Utils     │  │   Loading   │  │   Utils     │        │
+│  └─────────────┘  └─────────────┘  └─────────────┘        │
+│                                                         │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
+│  │Validation   │  │   Chart     │  │   Date      │        │
+│  │   Utils     │  │   Utils     │  │   Utils     │        │
+│  └─────────────┘  └─────────────┘  └─────────────┘        │
+│                                                         │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
+│  │   Config    │  │   Decorator │  │   JSON      │        │
+│  │   System    │  │   System    │  │   Helpers   │        │
 │  └─────────────┘  └─────────────┘  └─────────────┘        │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -246,20 +306,39 @@ The LLM serves as the central orchestrator in a continuous loop:
 ### Available Functions
 
 **Search & Validation:**
-- `ddgs_search` - Web search for asset context
-- `validate_ticker` - Confirm asset symbol exists
+- `ddgs_search` - Web search for asset context (refactored to `search_utils.py`)
+- `validate_ticker` - Confirm asset symbol exists (refactored to `validation_utils.py`)
 
 **Data Loading:**
-- `get_company_info` - Company details (stocks)
-- `get_crypto_info` - Crypto details (cryptocurrencies)
-- `load_prices` - Historical price data (stocks)
-- `load_crypto_prices` - Historical price data (crypto)
+- `get_company_info` - Company details (stocks) (refactored to utility modules)
+- `get_crypto_info` - Crypto details (cryptocurrencies) (refactored to utility modules)
+- `load_prices` - Historical price data (stocks) (refactored to utility modules)
+- `load_crypto_prices` - Historical price data (crypto) (refactored to utility modules)
 
 **Analysis Functions:**
-- `compute_indicators` - Calculate RSI, MACD, Bollinger Bands
-- `detect_events` - Find significant price movements
-- `forecast_prices` - Generate price predictions
-- `build_report` - Create final analysis report
+- `compute_indicators` - Calculate RSI, MACD, Bollinger Bands (refactored to utility modules)
+- `detect_events` - Find significant price movements (refactored to utility modules)
+- `forecast_prices` - Generate price predictions (refactored to utility modules)
+- `build_report` - Create final analysis report (refactored to utility modules)
+
+### New Utility Modules
+
+**Core Utilities:**
+- `config.py` - Centralized configuration management with environment variable support
+- `decorators.py` - Cross-cutting concerns: error handling, logging, validation, caching
+- `date_utils.py` - Date formatting, validation, and manipulation utilities
+- `chart_utils.py` - Chart creation, animation, and visualization helpers
+- `validation_utils.py` - Data validation and sanitization utilities
+- `search_utils.py` - Web search and parsing with DDGS integration
+- `json_helpers.py` - JSON processing and formatting utilities
+
+**Models & Data Structures:**
+- `models/` - Pydantic models for utility modules and refactoring progress
+- `data_models.py` - Core data structures and validation
+
+**Compatibility Layer:**
+- `compatibility_wrappers.py` - Backward compatibility for existing function signatures
+- `compatibility.py` - Additional compatibility utilities
 
 ## 📦 Prerequisites
 
@@ -275,10 +354,11 @@ The LLM serves as the central orchestrator in a continuous loop:
    cd agentic-ticker
    ```
 
-2. **Set up environment variables:**
+2. **Set up configuration:**
    ```bash
-   cp .env.example .env
-   # Edit .env with your Google Gemini API key
+   # Option A: Using config.yaml (Recommended)
+   # Edit config.yaml with your Google Gemini API key
+   
    ```
 
 3. **Install Python dependencies:**
@@ -333,21 +413,40 @@ Input: "BTC"
 ├── src/                       # Core modules
 │   ├── orchestrator.py        # Agent loop and coordination
 │   ├── planner.py             # Gemini-powered reasoning
-│   ├── services.py            # Analysis functions and tools
+│   ├── services.py            # Analysis functions and tools (legacy)
 │   ├── data_models.py         # Data structures and validation
 │   ├── ui_components.py       # Visualization components
-│   └── json_helpers.py        # JSON processing utilities
+│   ├── json_helpers.py        # JSON processing utilities
+│   ├── config.py             # Centralized configuration management
+│   ├── decorators.py         # Cross-cutting concerns decorators
+│   ├── date_utils.py         # Date and time utilities
+│   ├── chart_utils.py        # Chart creation and animation
+│   ├── validation_utils.py   # Data validation and sanitization
+│   ├── search_utils.py       # Web search and parsing
+│   ├── compatibility.py      # Compatibility utilities
+│   └── compatibility_wrappers.py # Backward compatibility layer
+│   ├── models/              # Pydantic models and data structures
+│   │   ├── utility_module.py    # Utility module models
+│   │   ├── utility_function.py  # Utility function models
+│   │   ├── code_duplication_pattern.py
+│   │   ├── code_location.py
+│   │   ├── decorator.py
+│   │   ├── function_parameter.py
+│   │   └── refactoring_progress.py
 ├── tests/                     # Test suite
 │   ├── conftest.py           # Test configuration and fixtures
 │   ├── test_data_models.py    # Data model tests
 │   ├── test_integration.py    # Integration tests
 │   ├── test_orchestrator.py  # Orchestrator tests
 │   ├── test_services.py       # Service function tests
-│   └── test_ui_components.py # UI component tests
+│   ├── test_ui_components.py # UI component tests
+│   ├── contract/            # Contract tests for utility modules
+│   └── integration/         # Integration tests for refactored modules
 ├── .devcontainer/             # Development container configuration
-├── .env.example              # Environment variables template
+
 ├── .gitignore               # Git ignore rules
 ├── AGENTS.md                # Agent documentation
+├── MIGRATION_GUIDE.md       # Migration guide for refactored code
 ├── launch.json              # Launch configuration
 ├── requirements.txt         # Python dependencies
 ├── setup.cfg                # Development configuration
@@ -379,7 +478,38 @@ pytest tests/test_services.py
 
 ## 🔧 Configuration
 
-### Environment Variables
+### Primary Configuration: config.yaml (Recommended)
+
+The application now uses `config.yaml` as the primary configuration method:
+
+```yaml
+# Gemini API Configuration
+gemini:
+  api_key: "your-api-key"
+  model: "gemini-2.5-flash-lite"
+  api_base: "https://generativelanguage.googleapis.com/v1beta"
+  temperature: 0.2
+  max_tokens: 8192
+  timeout: 120
+
+# Analysis Parameters
+analysis:
+  default_days: 30
+  default_threshold: 2.0
+  default_forecast_days: 5
+  max_analysis_steps: 10
+
+# Feature Flags
+feature_flags:
+  enable_web_search: true
+  enable_crypto_analysis: true
+  enable_stock_analysis: true
+  enable_forecasting: true
+```
+
+### Environment Variables (Legacy Support)
+
+For backward compatibility, environment variables are still supported:
 
 | Variable | Description | Required |
 |----------|-------------|----------|
@@ -387,15 +517,45 @@ pytest tests/test_services.py
 | `GEMINI_MODEL` | Gemini model to use | No (default: gemini-2.5-flash-lite) |
 | `GEMINI_API_BASE` | Gemini API base URL | No (default: Google's API) |
 | `COINGECKO_DEMO_API_KEY` | CoinGecko API key for crypto data | No |
+| `LOG_LEVEL` | Logging level (DEBUG, INFO, WARNING, ERROR) | No (default: INFO) |
+| `COMPATIBILITY_ENABLED` | Enable backward compatibility layer | No (default: true) |
+| `COMPATIBILITY_WARNINGS` | Show deprecation warnings | No (default: true) |
+| `ENABLE_*` | Feature flags for various components | No (default: true for most) |
+
+### Configuration Files (Alternative)
+
+The system also supports JSON configuration files for backward compatibility:
+
+**config.json:**
+```json
+{
+  "gemini": {
+    "api_key": "your-api-key",
+    "model": "gemini-2.5-flash-lite",
+    "temperature": 0.2
+  },
+  "analysis": {
+    "default_days": 30,
+    "default_threshold": 2.0,
+    "max_analysis_steps": 10
+  },
+  "feature_flags": {
+    "enable_web_search": true,
+    "enable_crypto_analysis": true,
+    "enable_stock_analysis": true
+  }
+}
+```
 
 ### Customization
 
 The agent's behavior can be customized by:
 
-1. **Modifying the Planner**: Adjust prompts and reasoning logic in `src/planner.py`
-2. **Adding New Tools**: Extend the tool registry in `src/orchestrator.py`
-3. **Enhancing Analysis**: Add new analysis functions in `src/services.py`
-4. **UI Customization**: Modify the Streamlit interface in `agentic_ticker.py`
+1. **Configuration Management**: Use `src/config.py` for centralized configuration
+2. **Modular Extensions**: Add new utility modules in `src/`
+3. **Decorator System**: Use `src/decorators.py` for cross-cutting concerns
+4. **Utility Functions**: Extend `src/*_utils.py` modules with new functionality
+5. **Backward Compatibility**: Configure via `src/compatibility_wrappers.py`
 
 ## 📄 License
 

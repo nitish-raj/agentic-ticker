@@ -6,7 +6,12 @@ numpy
 matplotlib
 requests
 pydantic
-python-dotenv
+
 plotly
 coingecko-sdk
 ddgs
+flake8
+mypy
+fastapi
+uvicorn[standard]
+httpx

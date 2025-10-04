@@ -8,17 +8,16 @@ Agentic Ticker handles sensitive information including API keys, configuration d
 
 ## ⚠️ IMPORTANT: Configuration Policy
 
-**THIS REPOSITORY USES config.yaml ONLY - NO .env FILES**
-- **DO NOT** use .env files for configuration
-- **DO NOT** reference environment variables for API keys
-- **ONLY** use config.yaml for all configuration
-- All API keys must be set in config.yaml
+**THIS REPOSITORY USES ENVIRONMENT VARIABLES ONLY**
+- **REQUIRED**: Use environment variables for all configuration (especially for Streamlit Cloud)
+- **OPTIONAL**: Use .env file for local development (copy from .env.template)
+- All API keys must be set as environment variables
 
 ## 🚨 Security Features Implemented
 
 ### 1. Secure Configuration Management
-- Uses config.yaml with secure template (config.yaml.template)
-- API keys are stored in config.yaml with proper file permissions (600)
+- Uses environment variables with .env file support for local development (.env.template)
+- API keys are stored as environment variables (cloud-compatible)
 - No hardcoded secrets in the codebase
 - Configuration validation and sanitization
 

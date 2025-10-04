@@ -4,7 +4,6 @@ Test configuration validation system.
 
 import pytest
 import os
-import tempfile
 from pathlib import Path
 
 # Add src to path for imports
@@ -13,7 +12,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 # Import from src.config directly
-from src.config import AppConfig, GeminiConfig
+from src.config import AppConfig
 
 
 class TestConfigValidation:
@@ -23,7 +22,6 @@ class TestConfigValidation:
         """Test that default configuration passes validation."""
         # Create config without loading from file
         config = AppConfig()
-        config.config_file_path = None  # Don't load from file
 
         # Manually clear API keys to test warning behavior
         original_gemini_key = config.gemini.api_key
@@ -186,34 +184,57 @@ class TestConfigValidation:
             config.coingecko.demo_api_key = original_coingecko_demo
             config.coingecko.pro_api_key = original_coingecko_pro
 
-    def test_config_file_loading(self):
-        """Test loading configuration from file."""
-        # Create a temporary config file
-        config_data = {
-            "gemini": {"temperature": 1.5, "timeout": 60},
-            "analysis": {"default_days": 20},
-        }
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            import json
-
-            json.dump(config_data, f)
-            temp_file = f.name
-
+    def test_environment_variable_loading(self):
+        """Test loading configuration from environment variables."""
+        # Clear relevant environment variables first
+        env_vars_to_clear = [k for k in os.environ.keys() if k.startswith(('GEMINI_', 'ANALYSIS_', 'LOGGING_', 'ENABLE_'))]
+        original_values = {}
+        for var in env_vars_to_clear:
+            original_values[var] = os.environ.get(var)
+            if var in os.environ:
+                del os.environ[var]
+        
         try:
-            config = AppConfig(config_file_path=temp_file)
+            # Set test environment variables
+            os.environ['GEMINI_TEMPERATURE'] = '1.5'
+            os.environ['GEMINI_TIMEOUT'] = '60'
+            os.environ['ANALYSIS_DEFAULT_DAYS'] = '20'
+            
+            config = AppConfig()
             assert config.gemini.temperature == 1.5
             assert config.gemini.timeout == 60
             assert config.analysis.default_days == 20
         finally:
-            os.unlink(temp_file)
+            # Restore environment variables
+            for var, value in original_values.items():
+                if value is not None:
+                    os.environ[var] = value
+                elif var in os.environ:
+                    del os.environ[var]
 
-    def test_config_yaml_loading(self):
-        """Test that configuration loads from config.yaml."""
-        # Test that config loads from YAML file instead of environment
-        gemini_config = GeminiConfig()
-        # Should use default values from config.yaml, not environment
-        assert gemini_config.api_key == "" or gemini_config.api_key is None
+    def test_default_configuration_values(self):
+        """Test that configuration uses default values when no environment variables are set."""
+        # Clear relevant environment variables
+        env_vars_to_clear = [k for k in os.environ.keys() if k.startswith(('GEMINI_', 'ANALYSIS_', 'LOGGING_', 'ENABLE_'))]
+        original_values = {}
+        for var in env_vars_to_clear:
+            original_values[var] = os.environ.get(var)
+            if var in os.environ:
+                del os.environ[var]
+        
+        try:
+            config = AppConfig()
+            # Should use default values
+            assert config.gemini.api_key == ""
+            assert config.gemini.model == "gemini-2.5-flash-lite"
+            assert config.gemini.temperature == 0.2
+        finally:
+            # Restore environment variables
+            for var, value in original_values.items():
+                if value is not None:
+                    os.environ[var] = value
+                elif var in os.environ:
+                    del os.environ[var]
 
     def test_warning_vs_error_distinction(self):
         """Test that warnings and errors are properly distinguished."""

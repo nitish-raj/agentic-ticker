@@ -11,6 +11,16 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 
+# Load environment variables from .env file if it exists
+try:
+    from dotenv import load_dotenv
+    
+    # Try to load .env file from current directory and parent directories
+    load_dotenv()
+except ImportError:
+    # python-dotenv not available, continue without it
+    pass
+
 # Add project root to Python path FIRST
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))

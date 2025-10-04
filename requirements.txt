@@ -6,6 +6,7 @@ numpy
 matplotlib
 requests
 pydantic
+python-dotenv
 
 plotly
 coingecko-sdk

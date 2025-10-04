@@ -19,7 +19,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_NAME="Agentic Ticker"
 VENV_DIR="${SCRIPT_DIR}/.venv"
 REQUIREMENTS_FILE="${SCRIPT_DIR}/requirements.txt"
-CONFIG_FILE="${SCRIPT_DIR}/config.yaml"
 STREAMLIT_APP="${SCRIPT_DIR}/agentic_ticker.py"
 FASTAPI_APP="${SCRIPT_DIR}/src/main.py"
 
@@ -58,13 +57,15 @@ ${GREEN}Examples:${NC}
   ./launch.sh --host 0.0.0.0           # Bind to all interfaces
 
 ${GREEN}Configuration:${NC}
-   config.yaml           Required configuration file with API keys
-   - gemini.api_key     Required: Google Gemini API key
-   - coingecko.demo_api_key Optional: For crypto data
+   Configuration:
+   - .env file            Recommended for local development (copy .env.template)
+   - Environment variables Required for Streamlit Cloud deployment
 
 ${GREEN}Quick Start:${NC}
    1. Run: ./launch.sh -s              # Setup environment
-   2. Edit config.yaml with your API keys
+   2. Configure your API keys:
+      - Local: cp .env.template .env && nano .env
+      - Cloud: Set environment variables in deployment
    3. Run: ./launch.sh                 # Start the application
 
 EOF
@@ -185,28 +186,43 @@ install_dependencies() {
 
 # Setup configuration file
 setup_config() {
-    if [[ ! -f "$CONFIG_FILE" ]]; then
-        log_error "config.yaml not found. Please create config.yaml with your API keys."
-        log_info "See documentation for configuration format."
-        exit 1
+    # Check for .env file
+    if [[ -f ".env" ]]; then
+        log_info ".env file found"
     else
-        log_info "config.yaml found"
+        log_warn "No .env file found. Creating .env template..."
+        if [[ -f ".env.template" ]]; then
+            cp .env.template .env
+            log_info "Created .env from template. Please edit it with your API keys."
+        else
+            log_error "No .env.template found. Please create .env file."
+        fi
     fi
 }
 
 # Check configuration
 check_config() {
-    if [[ ! -f "$CONFIG_FILE" ]]; then
-        log_error "config.yaml not found. Please create config.yaml with your API keys."
-        exit 1
+    # Check for environment variable first (highest priority)
+    if [[ -n "${GEMINI_API_KEY:-}" ]]; then
+        log_info "Gemini API key found in environment variables"
+        return 0
     fi
     
-    # Check for required API key in config.yaml
-    if ! grep -q "api_key:" "$CONFIG_FILE" || grep -q "your-gemini-api-key-here" "$CONFIG_FILE"; then
-        log_error "Gemini API key not set in config.yaml"
-        log_info "Please edit config.yaml and add your Google Gemini API key"
-        exit 1
+    # Check for .env file
+    if [[ -f ".env" ]]; then
+        if grep -q "GEMINI_API_KEY=" .env && ! grep -q 'GEMINI_API_KEY=""' .env; then
+            log_info "Gemini API key found in .env file"
+            return 0
+        else
+            log_error "Gemini API key not set in .env file"
+            log_info "Please edit .env and add your Google Gemini API key"
+            exit 1
+        fi
     fi
+    
+    # No configuration found
+    log_error "No configuration found. Please set GEMINI_API_KEY environment variable or create .env file"
+    exit 1
 }
 
 # Test mode

@@ -5,7 +5,7 @@ import os
 # Add the src directory to the Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-# Note: Environment variables are no longer used. Tests should use config.yaml or mock the config system.
+# Note: Tests should use environment variables or mock the config system.
 
 
 @pytest.fixture

@@ -51,12 +51,10 @@ Bash: Follow shellcheck conventions, use set -euo pipefail, quote variables
 - main: Added spec-driven development workflow
 
 ## ⚠️ CRITICAL: Configuration Policy
-**THIS REPOSITORY USES config.yaml ONLY - NO .env FILES**
-- **DO NOT** use .env files for configuration
-- **DO NOT** reference environment variables for API keys
-- **ONLY** use config.yaml for all configuration
-- All API keys must be set in config.yaml
-- Environment variable support was removed and must not be reintroduced
+**THIS REPOSITORY USES ENVIRONMENT VARIABLES ONLY**
+- **REQUIRED**: Use environment variables for all configuration (especially for Streamlit Cloud)
+- **OPTIONAL**: Use .env file for local development (copy from .env.template)
+- All API keys must be set as environment variables
 
 ## Tool Usage Requirements
 - **Always use appropriate tools** to verify changes before considering work complete

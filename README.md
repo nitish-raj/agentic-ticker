@@ -15,8 +15,14 @@ chmod +x launch.sh
 # 2. Run setup (installs dependencies, creates config.yaml file)
 ./launch.sh -s
 
-# 3. Edit config.yaml with your Google Gemini API key
-nano config.yaml
+# 3. Set up your environment (choose one option):
+
+# Option A: Use .env file (recommended for local development)
+cp .env.template .env
+nano .env  # Add your API key
+
+# Option B: Use environment variable directly
+export GEMINI_API_KEY="your-api-key-here"
 
 # 4. Start the application
 ./launch.sh
@@ -31,16 +37,14 @@ For more launcher options, see [QUICK_START.md](QUICK_START.md) and [LAUNCHER_RE
 ### Manual Setup (Alternative)
 
 ```bash
-# Option A: Using config.yaml (Recommended)
-# Edit config.yaml with your API key, then run:
+# Option A: Using .env file (Recommended for local development)
+cp .env.template .env
+# Edit .env with your API key, then run:
 streamlit run agentic_ticker.py
 
-# Option B: Using Environment Variables (Legacy)
+# Option B: Using Environment Variables (Required for Streamlit Cloud)
 export GEMINI_API_KEY="your-api-key-here"
 streamlit run agentic_ticker.py
-
-# Or run the FastAPI backend
-python src/main.py
 ```
 
 ## 🔄 Refactored Architecture
@@ -478,38 +482,30 @@ pytest tests/test_services.py
 
 ## 🔧 Configuration
 
-### Primary Configuration: config.yaml (Recommended)
+### Configuration: Environment Variables Only
 
-The application now uses `config.yaml` as the primary configuration method:
+The application uses environment variables for all configuration, with .env file support for local development:
 
-```yaml
-# Gemini API Configuration
-gemini:
-  api_key: "your-api-key"
-  model: "gemini-2.5-flash-lite"
-  api_base: "https://generativelanguage.googleapis.com/v1beta"
-  temperature: 0.2
-  max_tokens: 8192
-  timeout: 120
+#### Option A: .env file (Local Development)
+```bash
+# Copy the template
+cp .env.template .env
 
-# Analysis Parameters
-analysis:
-  default_days: 30
-  default_threshold: 2.0
-  default_forecast_days: 5
-  max_analysis_steps: 10
-
-# Feature Flags
-feature_flags:
-  enable_web_search: true
-  enable_crypto_analysis: true
-  enable_stock_analysis: true
-  enable_forecasting: true
+# Edit with your configuration
+nano .env
 ```
 
-### Environment Variables (Legacy Support)
+#### Option B: Environment Variables (Cloud Deployment)
+```bash
+# Set directly in your deployment environment
+export GEMINI_API_KEY="your-api-key"
+export GEMINI_MODEL="gemini-2.5-flash-lite"
+# ... other variables
+```
 
-For backward compatibility, environment variables are still supported:
+### Environment Variables Reference
+
+All configuration is done through environment variables:
 
 | Variable | Description | Required |
 |----------|-------------|----------|

@@ -8,12 +8,19 @@ environment variable usage.
 
 import os
 import logging
-import json
 import ipaddress
 from typing import Dict, Any, Optional, List
-from pathlib import Path
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from enum import Enum
+
+try:
+    from dotenv import load_dotenv
+    
+    # Try to load .env file from current directory and parent directories
+    load_dotenv()
+except ImportError:
+    # python-dotenv not available, continue without it
+    pass
 
 
 class LogLevel(str, Enum):
@@ -241,131 +248,260 @@ class AppConfig:
     cors: CORSConfig = field(default_factory=CORSConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
 
-    # Configuration file settings
-    config_file_path: Optional[str] = None
+    # Configuration settings
     hot_reload_enabled: bool = False
     hot_reload_interval: int = 60  # seconds
 
     def __post_init__(self):
-        """Initialize configuration and load from file if available."""
-        if self.config_file_path:
-            self.load_from_file(self.config_file_path)
-        else:
-            # Try to find config file in common locations
-            config_paths = [
-                "config.json",
-                "config.yaml",
-                ".agentic-ticker.json",
-                ".agentic-ticker.yaml",
-                os.path.expanduser("~/.agentic-ticker.json"),
-                os.path.expanduser("~/.agentic-ticker.yaml"),
-            ]
+        """Initialize configuration from environment variables only."""
+        # Load from environment variables
+        self.load_from_env()
 
-            for path in config_paths:
-                if os.path.exists(path):
-                    self.load_from_file(path)
-                    break
+    
 
-    def load_from_file(self, file_path: str) -> None:
-        """Load configuration from JSON or YAML file."""
-        path = Path(file_path)
-        if not path.exists():
-            return
-
-        try:
-            with open(path, "r") as f:
-                if path.suffix.lower() in [".yaml", ".yml"]:
-                    import yaml
-
-                    data = yaml.safe_load(f)
-                else:
-                    data = json.load(f)
-
-            self.update_from_dict(data)
-
-        except ImportError:
-            # YAML not available, try JSON
-            if path.suffix.lower() in [".yaml", ".yml"]:
-                return
+    def load_from_env(self) -> None:
+        """Load configuration from environment variables."""
+        # Gemini API Configuration
+        if os.getenv("GEMINI_API_KEY"):
+            self.gemini.api_key = os.getenv("GEMINI_API_KEY", "")
+        if os.getenv("GEMINI_MODEL"):
+            self.gemini.model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+        if os.getenv("GEMINI_API_BASE"):
+            self.gemini.api_base = os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta")
+        if os.getenv("GEMINI_TEMPERATURE"):
             try:
-                with open(path, "r") as f:
-                    data = json.load(f)
-                self.update_from_dict(data)
-            except Exception as e:
-                logging.warning(f"Failed to load config from {file_path}: {e}")
-        except Exception as e:
-            logging.warning(f"Failed to load config from {file_path}: {e}")
-
-    def update_from_dict(self, data: Dict[str, Any]) -> None:
-        """Update configuration from dictionary."""
-        if not isinstance(data, dict):
-            return
-
-        # Update nested configurations
-        for section_name, section_config in [
-            ("gemini", self.gemini),
-            ("coingecko", self.coingecko),
-            ("yahoo_finance", self.yahoo_finance),
-            ("ddg", self.ddg),
-            ("analysis", self.analysis),
-            ("logging", self.logging),
-            ("feature_flags", self.feature_flags),
-            ("ui", self.ui),
-            ("cors", self.cors),
-            ("security", self.security),
-        ]:
-            if section_name in data and isinstance(data[section_name], dict):
-                for key, value in data[section_name].items():
-                    if hasattr(section_config, key):
-                        setattr(section_config, key, value)
-
-        # Update top-level configuration
-        for key, value in data.items():
-            if key not in [
-                s[0]
-                for s in [
-                    ("gemini",),
-                    ("coingecko",),
-                    ("yahoo_finance",),
-                    ("ddg",),
-                    ("analysis",),
-                    ("logging",),
-                    ("feature_flags",),
-                    ("ui",),
-                    ("cors",),
-                    ("security",),
-                ]
-            ] and hasattr(self, key):
-                setattr(self, key, value)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert configuration to dictionary."""
-        return asdict(self)
-
-    def save_to_file(self, file_path: str) -> None:
-        """Save configuration to file."""
-        path = Path(file_path)
-        data = self.to_dict()
-
-        try:
-            with open(path, "w") as f:
-                if path.suffix.lower() in [".yaml", ".yml"]:
-                    import yaml
-
-                    yaml.dump(data, f, default_flow_style=False)
-                else:
-                    json.dump(data, f, indent=2)
-        except ImportError:
-            # YAML not available, use JSON
-            if path.suffix.lower() in [".yaml", ".yml"]:
-                return
+                self.gemini.temperature = float(os.getenv("GEMINI_TEMPERATURE", "0.2"))
+            except ValueError:
+                pass
+        if os.getenv("GEMINI_MAX_TOKENS"):
             try:
-                with open(path, "w") as f:
-                    json.dump(data, f, indent=2)
-            except Exception as e:
-                logging.error(f"Failed to save config to {file_path}: {e}")
-        except Exception as e:
-            logging.error(f"Failed to save config to {file_path}: {e}")
+                self.gemini.max_tokens = int(os.getenv("GEMINI_MAX_TOKENS", "8192"))
+            except ValueError:
+                pass
+        if os.getenv("GEMINI_TIMEOUT"):
+            try:
+                self.gemini.timeout = int(os.getenv("GEMINI_TIMEOUT", "120"))
+            except ValueError:
+                pass
+
+        # CoinGecko API Configuration
+        if os.getenv("COINGECKO_DEMO_API_KEY"):
+            self.coingecko.demo_api_key = os.getenv("COINGECKO_DEMO_API_KEY", "")
+        if os.getenv("COINGECKO_API_KEY"):
+            self.coingecko.pro_api_key = os.getenv("COINGECKO_API_KEY", "")
+        if os.getenv("COINGECKO_ENVIRONMENT"):
+            self.coingecko.environment = os.getenv("COINGECKO_ENVIRONMENT", "demo")
+        if os.getenv("COINGECKO_TIMEOUT"):
+            try:
+                self.coingecko.timeout = int(os.getenv("COINGECKO_TIMEOUT", "30"))
+            except ValueError:
+                pass
+
+        # Yahoo Finance Configuration
+        if os.getenv("YAHOO_FINANCE_TIMEOUT"):
+            try:
+                self.yahoo_finance.timeout = int(os.getenv("YAHOO_FINANCE_TIMEOUT", "30"))
+            except ValueError:
+                pass
+        if os.getenv("YAHOO_FINANCE_RETRY_ATTEMPTS"):
+            try:
+                self.yahoo_finance.retry_attempts = int(os.getenv("YAHOO_FINANCE_RETRY_ATTEMPTS", "3"))
+            except ValueError:
+                pass
+        if os.getenv("YAHOO_FINANCE_RETRY_DELAY"):
+            try:
+                self.yahoo_finance.retry_delay = float(os.getenv("YAHOO_FINANCE_RETRY_DELAY", "1.0"))
+            except ValueError:
+                pass
+
+        # DuckDuckGo Search Configuration
+        if os.getenv("DDG_MAX_RESULTS"):
+            try:
+                self.ddg.max_results = int(os.getenv("DDG_MAX_RESULTS", "3"))
+            except ValueError:
+                pass
+        if os.getenv("DDG_REGION"):
+            self.ddg.region = os.getenv("DDG_REGION", "us-en")
+        if os.getenv("DDG_SAFESEARCH"):
+            self.ddg.safesearch = os.getenv("DDG_SAFESEARCH", "moderate")
+        if os.getenv("DDG_TIMEOUT"):
+            try:
+                self.ddg.timeout = int(os.getenv("DDG_TIMEOUT", "30"))
+            except ValueError:
+                pass
+
+        # Analysis Parameters
+        if os.getenv("ANALYSIS_DEFAULT_DAYS"):
+            try:
+                self.analysis.default_days = int(os.getenv("ANALYSIS_DEFAULT_DAYS", "30"))
+            except ValueError:
+                pass
+        if os.getenv("ANALYSIS_DEFAULT_THRESHOLD"):
+            try:
+                self.analysis.default_threshold = float(os.getenv("ANALYSIS_DEFAULT_THRESHOLD", "2.0"))
+            except ValueError:
+                pass
+        if os.getenv("ANALYSIS_DEFAULT_FORECAST_DAYS"):
+            try:
+                self.analysis.default_forecast_days = int(os.getenv("ANALYSIS_DEFAULT_FORECAST_DAYS", "5"))
+            except ValueError:
+                pass
+        if os.getenv("ANALYSIS_MAX_ANALYSIS_STEPS"):
+            try:
+                self.analysis.max_analysis_steps = int(os.getenv("ANALYSIS_MAX_ANALYSIS_STEPS", "10"))
+            except ValueError:
+                pass
+        if os.getenv("ANALYSIS_MIN_DATA_POINTS"):
+            try:
+                self.analysis.min_data_points = int(os.getenv("ANALYSIS_MIN_DATA_POINTS", "5"))
+            except ValueError:
+                pass
+        if os.getenv("ANALYSIS_VOLATILITY_WINDOW"):
+            try:
+                self.analysis.volatility_window = int(os.getenv("ANALYSIS_VOLATILITY_WINDOW", "10"))
+            except ValueError:
+                pass
+        if os.getenv("ANALYSIS_MA5_WINDOW"):
+            try:
+                self.analysis.ma5_window = int(os.getenv("ANALYSIS_MA5_WINDOW", "5"))
+            except ValueError:
+                pass
+        if os.getenv("ANALYSIS_MA10_WINDOW"):
+            try:
+                self.analysis.ma10_window = int(os.getenv("ANALYSIS_MA10_WINDOW", "10"))
+            except ValueError:
+                pass
+
+        # Logging Configuration
+        if os.getenv("LOGGING_LEVEL"):
+            level_str = os.getenv("LOGGING_LEVEL", "INFO").upper()
+            try:
+                self.logging.level = LogLevel(level_str)
+            except ValueError:
+                # If invalid level, use default
+                pass
+        if os.getenv("LOGGING_FORMAT"):
+            self.logging.format = os.getenv("LOGGING_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        if os.getenv("LOGGING_FILE_PATH"):
+            self.logging.file_path = os.getenv("LOGGING_FILE_PATH") or None
+        if os.getenv("LOGGING_MAX_FILE_SIZE"):
+            try:
+                self.logging.max_file_size = int(os.getenv("LOGGING_MAX_FILE_SIZE", "10485760"))
+            except ValueError:
+                pass
+        if os.getenv("LOGGING_BACKUP_COUNT"):
+            try:
+                self.logging.backup_count = int(os.getenv("LOGGING_BACKUP_COUNT", "5"))
+            except ValueError:
+                pass
+
+        # Feature Flags
+        if os.getenv("ENABLE_WEB_SEARCH"):
+            self.feature_flags.enable_web_search = os.getenv("ENABLE_WEB_SEARCH", "true").lower() == "true"
+        if os.getenv("ENABLE_CRYPTO_ANALYSIS"):
+            self.feature_flags.enable_crypto_analysis = os.getenv("ENABLE_CRYPTO_ANALYSIS", "true").lower() == "true"
+        if os.getenv("ENABLE_STOCK_ANALYSIS"):
+            self.feature_flags.enable_stock_analysis = os.getenv("ENABLE_STOCK_ANALYSIS", "true").lower() == "true"
+        if os.getenv("ENABLE_FORECASTING"):
+            self.feature_flags.enable_forecasting = os.getenv("ENABLE_FORECASTING", "true").lower() == "true"
+        if os.getenv("ENABLE_TECHNICAL_INDICATORS"):
+            self.feature_flags.enable_technical_indicators = os.getenv("ENABLE_TECHNICAL_INDICATORS", "true").lower() == "true"
+        if os.getenv("ENABLE_ANIMATIONS"):
+            self.feature_flags.enable_animations = os.getenv("ENABLE_ANIMATIONS", "true").lower() == "true"
+        if os.getenv("ENABLE_CACHING"):
+            self.feature_flags.enable_caching = os.getenv("ENABLE_CACHING", "true").lower() == "true"
+        if os.getenv("ENABLE_RETRY_LOGIC"):
+            self.feature_flags.enable_retry_logic = os.getenv("ENABLE_RETRY_LOGIC", "true").lower() == "true"
+        if os.getenv("ENABLE_ERROR_HANDLING"):
+            self.feature_flags.enable_error_handling = os.getenv("ENABLE_ERROR_HANDLING", "true").lower() == "true"
+        if os.getenv("ENABLE_VALIDATION"):
+            self.feature_flags.enable_validation = os.getenv("ENABLE_VALIDATION", "true").lower() == "true"
+
+        # User Interface Configuration
+        if os.getenv("UI_PAGE_TITLE"):
+            self.ui.page_title = os.getenv("UI_PAGE_TITLE", "Agentic-Ticker (Gemini)")
+        if os.getenv("UI_PAGE_ICON"):
+            self.ui.page_icon = os.getenv("UI_PAGE_ICON", "📈")
+        if os.getenv("UI_LAYOUT"):
+            self.ui.layout = os.getenv("UI_LAYOUT", "wide")
+        if os.getenv("UI_CHART_HEIGHT"):
+            try:
+                self.ui.chart_height = int(os.getenv("UI_CHART_HEIGHT", "500"))
+            except ValueError:
+                pass
+        if os.getenv("UI_ANIMATION_DURATION"):
+            try:
+                self.ui.animation_duration = int(os.getenv("UI_ANIMATION_DURATION", "500"))
+            except ValueError:
+                pass
+        if os.getenv("UI_TRANSITION_DURATION"):
+            try:
+                self.ui.transition_duration = int(os.getenv("UI_TRANSITION_DURATION", "300"))
+            except ValueError:
+                pass
+
+        # CORS Configuration
+        if os.getenv("CORS_ALLOWED_ORIGINS"):
+            origins = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:8501,http://127.0.0.1:8501").split(",")
+            self.cors.allowed_origins = [origin.strip() for origin in origins]
+        if os.getenv("CORS_ALLOWED_METHODS"):
+            methods = os.getenv("CORS_ALLOWED_METHODS", "GET,POST,PUT,DELETE,OPTIONS").split(",")
+            self.cors.allowed_methods = [method.strip() for method in methods]
+        if os.getenv("CORS_ALLOWED_HEADERS"):
+            headers = os.getenv("CORS_ALLOWED_HEADERS", "Content-Type,Authorization,X-Requested-With").split(",")
+            self.cors.allowed_headers = [header.strip() for header in headers]
+        if os.getenv("CORS_ALLOW_CREDENTIALS"):
+            self.cors.allow_credentials = os.getenv("CORS_ALLOW_CREDENTIALS", "true").lower() == "true"
+        if os.getenv("CORS_MAX_AGE"):
+            try:
+                self.cors.max_age = int(os.getenv("CORS_MAX_AGE", "600"))
+            except ValueError:
+                pass
+
+        # Configuration Settings
+        if os.getenv("CONFIG_FILE_PATH"):
+            self.config_file_path = os.getenv("CONFIG_FILE_PATH") or None
+        if os.getenv("HOT_RELOAD_ENABLED"):
+            self.hot_reload_enabled = os.getenv("HOT_RELOAD_ENABLED", "false").lower() == "true"
+        if os.getenv("HOT_RELOAD_INTERVAL"):
+            try:
+                self.hot_reload_interval = int(os.getenv("HOT_RELOAD_INTERVAL", "60"))
+            except ValueError:
+                pass
+
+        # Security Settings (only update existing attributes)
+        if os.getenv("SECURITY_HTTPS_ENABLED"):
+            self.security.https_enabled = os.getenv("SECURITY_HTTPS_ENABLED", "true").lower() == "true"
+        if os.getenv("SECURITY_TLS_VERSION"):
+            self.security.tls_version = os.getenv("SECURITY_TLS_VERSION", "TLSv1.3")
+        if os.getenv("SECURITY_VERIFY_CERTIFICATES"):
+            self.security.verify_certificates = os.getenv("SECURITY_VERIFY_CERTIFICATES", "true").lower() == "true"
+        if os.getenv("SECURITY_RATE_LIMIT_ENABLED"):
+            self.security.rate_limit_enabled = os.getenv("SECURITY_RATE_LIMIT_ENABLED", "true").lower() == "true"
+        if os.getenv("SECURITY_REQUESTS_PER_MINUTE"):
+            try:
+                self.security.requests_per_minute = int(os.getenv("SECURITY_REQUESTS_PER_MINUTE", "60"))
+            except ValueError:
+                pass
+        if os.getenv("SECURITY_REQUESTS_PER_HOUR"):
+            try:
+                self.security.requests_per_hour = int(os.getenv("SECURITY_REQUESTS_PER_HOUR", "1000"))
+            except ValueError:
+                pass
+        if os.getenv("SECURITY_CONNECTION_TIMEOUT"):
+            try:
+                self.security.connection_timeout = int(os.getenv("SECURITY_CONNECTION_TIMEOUT", "30"))
+            except ValueError:
+                pass
+        if os.getenv("SECURITY_READ_TIMEOUT"):
+            try:
+                self.security.read_timeout = int(os.getenv("SECURITY_READ_TIMEOUT", "60"))
+            except ValueError:
+                pass
+
+    
+
+    
 
     def validate(self) -> tuple[List[str], List[str]]:
         """Validate configuration and return (errors, warnings)."""
@@ -784,9 +920,9 @@ def set_config(config: AppConfig) -> None:
     _config = config
 
 
-def load_config(config_file_path: Optional[str] = None) -> AppConfig:
-    """Load configuration from file and set as global instance."""
-    config = AppConfig(config_file_path=config_file_path)
+def load_config() -> AppConfig:
+    """Load configuration from environment variables and set as global instance."""
+    config = AppConfig()
 
     # Validate configuration
     errors, warnings = config.validate()

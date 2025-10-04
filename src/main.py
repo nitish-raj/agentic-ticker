@@ -18,6 +18,15 @@ import os
 # Add src directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Import security middleware
+try:
+    from security_middleware import setup_security_middleware
+except ImportError:
+    # Fallback if security middleware is not available
+    def setup_security_middleware(app, **kwargs):
+        """Fallback security middleware setup."""
+        pass
+
 # Import configuration
 try:
     from config import get_config
@@ -267,16 +276,37 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# Add CORS middleware with secure configuration
-cors_config = get_cors_config()
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=cors_config["allowed_origins"],
-    allow_credentials=cors_config["allow_credentials"],
-    allow_methods=cors_config["allowed_methods"],
-    allow_headers=cors_config["allowed_headers"],
-    max_age=cors_config["max_age"],
-)
+# Set up security middleware
+try:
+    config = get_config()
+    security_config = config.security
+    cors_config = config.cors
+    
+    # Configure security middleware
+    setup_security_middleware(
+        app,
+        https_enabled=security_config.https_enabled,
+        rate_limit_enabled=security_config.rate_limit_enabled,
+        requests_per_minute=security_config.requests_per_minute,
+        requests_per_hour=security_config.requests_per_hour,
+        max_request_size_mb=security_config.max_request_size_mb,
+        whitelist_ips=security_config.whitelist_ips,
+        blacklist_ips=security_config.blacklist_ips,
+        cors_origins=cors_config.allowed_origins,
+        strict_cors=cors_config.strict_origins
+    )
+except Exception as e:
+    # Fallback to basic CORS if security setup fails
+    print(f"Warning: Security middleware setup failed, using basic CORS: {e}")
+    cors_config = get_cors_config()
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_config["allowed_origins"],
+        allow_credentials=cors_config["allow_credentials"],
+        allow_methods=cors_config["allowed_methods"],
+        allow_headers=cors_config["allowed_headers"],
+        max_age=cors_config["max_age"],
+    )
 
 # In-memory storage for demonstration purposes
 # In a real application, this would be replaced with a proper database

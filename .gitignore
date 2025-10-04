@@ -1,7 +1,32 @@
-.env
-**/config.yaml
-__pychache__
-**.pyc
+# Python cache files
 __pycache__/
+**/__pycache__/
+**.pyc
+*.pyc
+*.pyo
+*.pyd
+.Python
 
-.venv
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Configuration files with sensitive data
+config.yaml
+**/config.yaml

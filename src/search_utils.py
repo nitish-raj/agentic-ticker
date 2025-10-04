@@ -91,7 +91,7 @@ class SearchUtils:
             self.gemini_api_base = "https://generativelanguage.googleapis.com/v1beta"
 
         if not self.gemini_api_key:
-            logger.warning("GEMINI_API_KEY not found in configuration")
+            logger.warning("Gemini API key not found in configuration")
 
     @handle_errors(default_return=[], log_errors=True)
     @log_execution(include_args=False, include_result=False)
@@ -119,10 +119,17 @@ class SearchUtils:
         try:
             return self._ddgs_search(query, search_config)
         except Exception as e:
-            logger.error(f"DDGS search failed: {e}")
+            # Sanitize error message to prevent API key exposure
+            try:
+                from .sanitization import sanitize_error_message
+                sanitized_error = sanitize_error_message(e)
+                logger.error(f"DDGS search failed: {sanitized_error}")
+            except ImportError:
+                logger.error("DDGS search failed: [SANITIZATION_ERROR]")
+            
             if search_config.enable_fallback:
                 return self._fallback_search(query, search_config)
-            raise SearchError(f"Web search failed: {e}")
+            raise SearchError("Web search failed: [ERROR_DETAILS_REDACTED]")
 
     def _ddgs_search(self, query: str, config: SearchConfig) -> List[SearchResult]:
         """Internal DDGS search implementation."""
@@ -162,7 +169,13 @@ class SearchUtils:
                 "DDGS library not available. Install with: pip install ddgs"
             )
         except Exception as e:
-            raise SearchError(f"DDGS search error: {e}")
+            # Sanitize error message to prevent API key exposure
+            try:
+                from .sanitization import sanitize_error_message
+                sanitized_error = sanitize_error_message(e)
+                raise SearchError(f"DDGS search error: {sanitized_error}")
+            except ImportError:
+                raise SearchError("DDGS search error: [SANITIZATION_ERROR]")
 
     def _fallback_search(self, query: str, config: SearchConfig) -> List[SearchResult]:
         """Fallback search method when DDGS is not available."""
@@ -340,7 +353,13 @@ class SearchUtils:
             return ""
 
         except Exception as e:
-            logger.error(f"Failed to parse ticker from search results: {e}")
+            # Sanitize error message to prevent sensitive data exposure
+            try:
+                from .sanitization import sanitize_error_message
+                sanitized_error = sanitize_error_message(e)
+                logger.error(f"Failed to parse ticker from search results: {sanitized_error}")
+            except ImportError:
+                logger.error("Failed to parse ticker from search results: [SANITIZATION_ERROR]")
             return ""
 
     def parse_crypto_ticker_from_search(

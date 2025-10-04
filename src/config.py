@@ -9,6 +9,7 @@ environment variable usage.
 import os
 import logging
 import json
+import ipaddress
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
@@ -142,6 +143,77 @@ class CORSConfig:
     ])
     allow_credentials: bool = True
     max_age: int = 600  # 10 minutes
+    strict_origins: bool = True  # Enforce strict origin validation
+
+
+@dataclass
+class SecurityConfig:
+    """Security configuration for network and application security."""
+    # HTTPS/TLS settings
+    https_enabled: bool = True
+    tls_version: str = "TLSv1.3"
+    verify_certificates: bool = True
+    certificate_bundle_path: Optional[str] = None
+    
+    # Rate limiting
+    rate_limit_enabled: bool = True
+    requests_per_minute: int = 60
+    requests_per_hour: int = 1000
+    burst_size: int = 10
+    
+    # Request limits
+    max_request_size_mb: int = 10
+    max_response_size_mb: int = 50
+    
+    # IP filtering
+    whitelist_ips: List[str] = field(default_factory=list)
+    blacklist_ips: List[str] = field(default_factory=list)
+    
+    # Security headers
+    security_headers_enabled: bool = True
+    hsts_enabled: bool = True
+    hsts_max_age: int = 31536000  # 1 year
+    hsts_include_subdomains: bool = True
+    hsts_preload: bool = True
+    
+    # Content Security Policy
+    csp_enabled: bool = True
+    csp_policy: str = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https:; "
+        "font-src 'self'; "
+        "connect-src 'self' https://api.coingecko.com https://generativelanguage.googleapis.com; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'"
+    )
+    
+    # Input validation
+    input_validation_enabled: bool = True
+    max_url_length: int = 2048
+    max_header_length: int = 8192
+    
+    # Network security
+    connection_timeout: int = 30
+    read_timeout: int = 60
+    max_retries: int = 3
+    retry_delay: float = 1.0
+    
+    # DNS security
+    dns_over_https: bool = False
+    dnssec_enabled: bool = True
+    trusted_dns_servers: List[str] = field(default_factory=lambda: [
+        "8.8.8.8", "8.8.4.4",  # Google
+        "1.1.1.1", "1.0.0.1"   # Cloudflare
+    ])
+    
+    # Monitoring and logging
+    security_logging_enabled: bool = True
+    log_failed_requests: bool = True
+    log_blocked_ips: bool = True
+    log_rate_limits: bool = True
 
     
 
@@ -158,6 +230,7 @@ class AppConfig:
     feature_flags: FeatureFlags = field(default_factory=FeatureFlags)
     ui: UIConfig = field(default_factory=UIConfig)
     cors: CORSConfig = field(default_factory=CORSConfig)
+    security: SecurityConfig = field(default_factory=SecurityConfig)
 
     # Configuration file settings
     config_file_path: Optional[str] = None
@@ -229,6 +302,7 @@ class AppConfig:
             ("feature_flags", self.feature_flags),
             ("ui", self.ui),
             ("cors", self.cors),
+            ("security", self.security),
         ]:
             if section_name in data and isinstance(data[section_name], dict):
                 for key, value in data[section_name].items():
@@ -239,7 +313,7 @@ class AppConfig:
         for key, value in data.items():
             if key not in [s[0] for s in [
                 ("gemini",), ("coingecko",), ("yahoo_finance",), ("ddg",),
-                ("analysis",), ("logging",), ("feature_flags",), ("ui",), ("cors",),
+                ("analysis",), ("logging",), ("feature_flags",), ("ui",), ("cors",), ("security",),
             ]] and hasattr(self, key):
                 setattr(self, key, value)
 
@@ -405,6 +479,55 @@ class AppConfig:
         if self.cors.max_age < 0:
             errors.append("CORS max_age must be non-negative")
 
+        # Validate security configuration
+        if self.security.requests_per_minute <= 0:
+            errors.append("Security requests_per_minute must be positive")
+
+        if self.security.requests_per_hour <= 0:
+            errors.append("Security requests_per_hour must be positive")
+
+        if self.security.burst_size <= 0:
+            errors.append("Security burst_size must be positive")
+
+        if self.security.max_request_size_mb <= 0:
+            errors.append("Security max_request_size_mb must be positive")
+
+        if self.security.max_response_size_mb <= 0:
+            errors.append("Security max_response_size_mb must be positive")
+
+        if self.security.connection_timeout <= 0:
+            errors.append("Security connection_timeout must be positive")
+
+        if self.security.read_timeout <= 0:
+            errors.append("Security read_timeout must be positive")
+
+        if self.security.max_retries < 0:
+            errors.append("Security max_retries must be non-negative")
+
+        if self.security.retry_delay < 0:
+            errors.append("Security retry_delay must be non-negative")
+
+        if self.security.max_url_length <= 0:
+            errors.append("Security max_url_length must be positive")
+
+        if self.security.max_header_length <= 0:
+            errors.append("Security max_header_length must be positive")
+
+        # Validate TLS version
+        valid_tls_versions = ["TLSv1.2", "TLSv1.3"]
+        if self.security.tls_version not in valid_tls_versions:
+            errors.append(f"Security tls_version must be one of: {valid_tls_versions}")
+
+        # Validate IP addresses
+        for ip in self.security.whitelist_ips + self.security.blacklist_ips:
+            try:
+                ipaddress.ip_network(ip, strict=False)
+            except ValueError:
+                try:
+                    ipaddress.ip_address(ip)
+                except ValueError:
+                    errors.append(f"Invalid IP address or network: {ip}")
+
         # Validate configuration file settings
         if self.hot_reload_interval <= 0:
             errors.append("Hot reload interval must be positive")
@@ -481,6 +604,20 @@ class AppConfig:
                     return False, "CORS allowed_origins cannot be empty"
                 elif key == "allowed_methods" and not value:
                     return False, "CORS allowed_methods cannot be empty"
+
+            elif section == "security":
+                if key in ["requests_per_minute", "requests_per_hour", "burst_size", 
+                          "max_request_size_mb", "max_response_size_mb", 
+                          "connection_timeout", "read_timeout", "max_url_length", "max_header_length"]:
+                    if int(value) <= 0:
+                        return False, f"Security {key} must be positive"
+                elif key in ["max_retries", "retry_delay"]:
+                    if float(value) < 0:
+                        return False, f"Security {key} must be non-negative"
+                elif key == "tls_version":
+                    valid_versions = ["TLSv1.2", "TLSv1.3"]
+                    if value not in valid_versions:
+                        return False, f"Security tls_version must be one of: {valid_versions}"
 
             return True, "Valid"
         except (ValueError, TypeError) as e:

@@ -50,6 +50,14 @@ Bash: Follow shellcheck conventions, use set -euo pipefail, quote variables
 - Added Python 3.11 + pandas, numpy, yfinance, feedparser, pydantic, Streamlit, Ollama
 - main: Added spec-driven development workflow
 
+## ⚠️ CRITICAL: Configuration Policy
+**THIS REPOSITORY USES config.yaml ONLY - NO .env FILES**
+- **DO NOT** use .env files for configuration
+- **DO NOT** reference environment variables for API keys
+- **ONLY** use config.yaml for all configuration
+- All API keys must be set in config.yaml
+- Environment variable support was removed and must not be reintroduced
+
 ## Tool Usage Requirements
 - **Always use appropriate tools** to verify changes before considering work complete
 - **Before building**, use `Read` tool to verify file contents and `Glob`/`Grep` to find related files

@@ -12,6 +12,27 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
+# Import data formatter for display formatting
+try:
+    from src.data_formatter import (
+        format_price_data, 
+        format_indicator_data, 
+        format_events_data, 
+        format_forecasts_data
+    )
+    
+except ImportError as e:
+    # Fallback if formatter not available
+    
+    def format_price_data(data):
+        return pd.DataFrame(data)
+    def format_indicator_data(data):
+        return pd.DataFrame(data)
+    def format_events_data(data):
+        return pd.DataFrame(data)
+    def format_forecasts_data(data):
+        return pd.DataFrame(data)
+
 # Import session state manager for thread-safe operations
 try:
     from src.session_state_manager import (
@@ -26,21 +47,49 @@ except ImportError:
     # Fallback if import fails - will be defined after streamlit import
     session_manager = None
 
-# Load configuration from config.yaml
+# Load configuration with security features
 try:
     import importlib.util
-    config_path = project_root / "src" / "config.py"
-    spec = importlib.util.spec_from_file_location("app_config", config_path)
-    if spec is None:
-        raise ImportError(f"Could not load config module from {config_path}")
-    config_module = importlib.util.module_from_spec(spec)
-    if spec.loader is None:
-        raise ImportError("Config module loader not available")
-    spec.loader.exec_module(config_module)
-    config = config_module.get_config()
-    print("Configuration loaded from config.yaml")
+    
+    config_security_module = None
+    
+    # Try to load secure configuration first
+    config_security_path = project_root / "src" / "config_security.py"
+    if config_security_path.exists():
+        spec = importlib.util.spec_from_file_location("config_security", config_security_path)
+        if spec is None:
+            raise ImportError(f"Could not load config security module from {config_security_path}")
+        config_security_module = importlib.util.module_from_spec(spec)
+        if spec.loader is None:
+            raise ImportError("Config security module loader not available")
+        spec.loader.exec_module(config_security_module)
+        config = config_security_module.load_config_with_env_fallback()
+        print("✅ Configuration loaded with environment variable support")
+    else:
+        # Fallback to regular configuration
+        config_path = project_root / "src" / "config.py"
+        spec = importlib.util.spec_from_file_location("app_config", config_path)
+        if spec is None:
+            raise ImportError(f"Could not load config module from {config_path}")
+        config_module = importlib.util.module_from_spec(spec)
+        if spec.loader is None:
+            raise ImportError("Config module loader not available")
+        spec.loader.exec_module(config_module)
+        config = config_module.get_config()
+    
+    # Validate security configuration
+    if config_security_module and hasattr(config_security_module, 'validate_security_config'):
+        security_results = config_security_module.validate_security_config()
+        if security_results["warnings"]:
+            for warning in security_results["warnings"]:
+                print(f"⚠️  Security warning: {warning}")
+        if security_results["recommendations"]:
+            print("🔒 Security recommendations:")
+            for rec in security_results["recommendations"]:
+                print(f"   - {rec}")
+    
 except Exception as e:
-    print(f"Failed to load configuration: {e}")
+    print(f"❌ Failed to load configuration: {e}")
     sys.exit(1)
 
 # Enable compatibility mode (temporarily, will be moved to config.yaml later)
@@ -675,26 +724,30 @@ def main():
                     st.info("Plotly not available for charts. Install with: pip install plotly")
         
         with tab_data:
-            # Display data in expandable sections
+            # Display data in expandable sections with formatting
             price_data = get_session_state('price_data')
             if price_data:
                 with st.expander("📈 Price Data"):
-                    st.dataframe(pd.DataFrame(price_data))
+                    formatted_price_data = format_price_data(price_data)
+                    st.dataframe(formatted_price_data)
             
             indicator_data = get_session_state('indicator_data')
             if indicator_data:
                 with st.expander("📊 Technical Indicators"):
-                    st.dataframe(pd.DataFrame(indicator_data))
+                    formatted_indicator_data = format_indicator_data(indicator_data)
+                    st.dataframe(formatted_indicator_data)
             
             events = get_session_state('events')
             if events:
                 with st.expander("⚡ Price Events"):
-                    st.dataframe(pd.DataFrame(events))
+                    formatted_events_data = format_events_data(events)
+                    st.dataframe(formatted_events_data)
             
             forecasts = get_session_state('forecasts')
             if forecasts:
                 with st.expander("🔮 Forecasts"):
-                    st.dataframe(pd.DataFrame(forecasts))
+                    formatted_forecasts_data = format_forecasts_data(forecasts)
+                    st.dataframe(formatted_forecasts_data)
         
         with tab_report:
             # Display the comprehensive report

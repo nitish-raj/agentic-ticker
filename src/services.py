@@ -322,24 +322,45 @@ def validate_crypto_ticker(input_text: str) -> str:
         - "Dogecoin" -> "DOGE"
         """
         
-        url = f"{api_base}/models/{model}:generateContent?key={api_key}"
-        # Sanitize URL for any potential logging/debug output
+        # Use secure API client to avoid API key exposure in URLs
         try:
-            from .sanitization import sanitize_url
-            sanitized_url = sanitize_url(url)
+            from secure_api_client import secure_gemini_request
         except ImportError:
-            sanitized_url = url
-        body = {
-            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.1,
-                "responseMimeType": "text/plain"
+            # Fallback to insecure method if secure client not available
+            url = f"{api_base}/models/{model}:generateContent?key={api_key}"
+            # Sanitize URL for any potential logging/debug output
+            try:
+                from .sanitization import sanitize_url
+                sanitized_url = sanitize_url(url)
+            except ImportError:
+                sanitized_url = url
+            body = {
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature": 0.1,
+                    "responseMimeType": "text/plain"
+                }
             }
-        }
-        
-        r = requests.post(url, json=body, timeout=30)
-        r.raise_for_status()
-        data = r.json()
+            r = requests.post(url, json=body, timeout=30)
+            r.raise_for_status()
+            data = r.json()
+        else:
+            # Use secure API client
+            body = {
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature": 0.1,
+                    "responseMimeType": "text/plain"
+                }
+            }
+            
+            response = secure_gemini_request(
+                path=f"models/{model}:generateContent",
+                method='POST',
+                json_data=body,
+                timeout=30
+            )
+            data = response.json()
         
         # Extract the ticker from Gemini response
         ticker = data["candidates"][0]["content"]["parts"][0]["text"].strip().upper()
@@ -542,24 +563,45 @@ def validate_ticker(input_text: str) -> str:
         - "Amazon" -> "AMZN"
         """
         
-        url = f"{api_base}/models/{model}:generateContent?key={api_key}"
-        # Sanitize URL for any potential logging/debug output
+        # Use secure API client to avoid API key exposure in URLs
         try:
-            from .sanitization import sanitize_url
-            sanitized_url = sanitize_url(url)
+            from secure_api_client import secure_gemini_request
         except ImportError:
-            sanitized_url = url
-        body = {
-            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.1,
-                "responseMimeType": "text/plain"
+            # Fallback to insecure method if secure client not available
+            url = f"{api_base}/models/{model}:generateContent?key={api_key}"
+            # Sanitize URL for any potential logging/debug output
+            try:
+                from .sanitization import sanitize_url
+                sanitized_url = sanitize_url(url)
+            except ImportError:
+                sanitized_url = url
+            body = {
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature": 0.1,
+                    "responseMimeType": "text/plain"
+                }
             }
-        }
-        
-        r = requests.post(url, json=body, timeout=30)
-        r.raise_for_status()
-        data = r.json()
+            r = requests.post(url, json=body, timeout=30)
+            r.raise_for_status()
+            data = r.json()
+        else:
+            # Use secure API client
+            body = {
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "temperature": 0.1,
+                    "responseMimeType": "text/plain"
+                }
+            }
+            
+            response = secure_gemini_request(
+                path=f"models/{model}:generateContent",
+                method='POST',
+                json_data=body,
+                timeout=30
+            )
+            data = response.json()
         
         # Extract the ticker from Gemini response
         ticker = data["candidates"][0]["content"]["parts"][0]["text"].strip().upper()
@@ -986,13 +1028,6 @@ def classify_asset_type(input_text: str) -> str:
         - "XYZ" -> "ambiguous"
         """
         
-        url = f"{api_base}/models/{model}:generateContent?key={api_key}"
-        # Sanitize URL for any potential logging/debug output
-        try:
-            from .sanitization import sanitize_url
-            sanitized_url = sanitize_url(url)
-        except ImportError:
-            sanitized_url = url
         body = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {
@@ -1001,9 +1036,28 @@ def classify_asset_type(input_text: str) -> str:
             }
         }
         
-        r = requests.post(url, json=body, timeout=30)
-        r.raise_for_status()
-        data = r.json()
+        # Use secure API client to avoid API key exposure in URLs
+        try:
+            from secure_api_client import secure_gemini_request
+            response = secure_gemini_request(
+                path=f"models/{model}:generateContent",
+                method='POST',
+                json_data=body,
+                timeout=30
+            )
+            data = response.json()
+        except ImportError:
+            # Fallback to insecure method if secure client not available
+            url = f"{api_base}/models/{model}:generateContent?key={api_key}"
+            # Sanitize URL for any potential logging/debug output
+            try:
+                from .sanitization import sanitize_url
+                sanitized_url = sanitize_url(url)
+            except ImportError:
+                sanitized_url = url
+            r = requests.post(url, json=body, timeout=30)
+            r.raise_for_status()
+            data = r.json()
         
         # Extract the classification from Gemini response
         classification = data["candidates"][0]["content"]["parts"][0]["text"].strip().lower()
@@ -1604,7 +1658,7 @@ def build_report(ticker: str, events: List[Dict[str, Any]], forecasts: List[Dict
         report['events'].append({
             'date': event.get('date', 'N/A'),
             'description': f"Price moved {event.get('change_percent', 0):+.2f}% {event.get('direction', 'Unknown')}",
-            'magnitude': abs(event.get('change_percent', 0)),
+            'magnitude': f"{abs(event.get('change_percent', 0)):.2f}%",
             'impact': 'positive' if event.get('change_percent', 0) > 0 else 'negative'
         })
     

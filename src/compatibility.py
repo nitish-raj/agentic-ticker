@@ -16,7 +16,6 @@ Features:
 import warnings
 import functools
 import inspect
-import os
 from typing import Any, Dict, List, Optional, Callable, Union
 from datetime import datetime
 import logging
@@ -41,25 +40,25 @@ class CompatibilityConfig:
         self.migration_deadline = datetime(2025, 12, 31)  # Deadline for migration
 
     @classmethod
-    def from_config(cls) -> 'CompatibilityConfig':
+    def from_config(cls) -> "CompatibilityConfig":
         """Create configuration from config.yaml or defaults"""
         config = cls()
         try:
             from .config import get_config
+
             app_config = get_config()
             # For now, use defaults since compatibility config isn't in config.yaml yet
             # This can be extended later if needed
+            deadline_str = getattr(app_config, "compatibility_deadline", None)
+            if deadline_str:
+                try:
+                    config.migration_deadline = datetime.fromisoformat(deadline_str)
+                except ValueError:
+                    logger.warning(
+                        f"Invalid COMPATIBILITY_DEADLINE format: {deadline_str}"
+                    )
         except ImportError:
             pass
-        
-        return config
-        if deadline_str:
-            try:
-                config.migration_deadline = datetime.fromisoformat(deadline_str)
-            except ValueError:
-                logger.warning(
-                    f"Invalid COMPATIBILITY_DEADLINE format: {deadline_str}"
-                )
 
         return config
 
@@ -80,6 +79,7 @@ def check_version_compatibility(version: str) -> bool:
     """
     try:
         import packaging.version
+
         current_version = packaging.version.parse(COMPATIBILITY_VERSION)
         min_version = packaging.version.parse(MIN_SUPPORTED_VERSION)
         provided_version = packaging.version.parse(version)
@@ -107,14 +107,14 @@ def deprecation_warning(message: str, stacklevel: int = 2) -> None:
     warnings.warn(
         f"[DEPRECATION] {message} (Compatibility layer v{COMPATIBILITY_VERSION})",
         DeprecationWarning,
-        stacklevel=stacklevel
+        stacklevel=stacklevel,
     )
 
 
 def compatibility_wrapper(
     func: Callable,
     new_func: Optional[Callable] = None,
-    migration_guide: Optional[str] = None
+    migration_guide: Optional[str] = None,
 ) -> Callable:
     """
     Decorator to wrap existing functions with compatibility layer.
@@ -127,6 +127,7 @@ def compatibility_wrapper(
     Returns:
         Wrapped function with compatibility features
     """
+
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         # Check if compatibility layer is enabled
@@ -177,8 +178,7 @@ def compatibility_wrapper(
 
 
 def create_function_signature_wrapper(
-    original_func: Callable,
-    new_func: Callable
+    original_func: Callable, new_func: Callable
 ) -> Callable:
     """
     Create a wrapper that maintains the original function signature but delegates
@@ -220,7 +220,7 @@ class CompatibilityRegistry:
         self,
         legacy_func_name: str,
         new_func_name: str,
-        migration_guide: Optional[str] = None
+        migration_guide: Optional[str] = None,
     ) -> None:
         """
         Register a compatibility mapping between legacy and new functions.
@@ -299,7 +299,7 @@ def get_compatibility_status() -> Dict[str, Any]:
             0, (compatibility_config.migration_deadline - datetime.now()).days
         ),
         "validation_issues": validate_compatibility_config(),
-        "registered_mappings": len(compatibility_registry.list_all_mappings())
+        "registered_mappings": len(compatibility_registry.list_all_mappings()),
     }
 
 
@@ -343,12 +343,12 @@ def _initialize_compatibility_mappings():
         ("services.validate_ticker", "utility_modules.validation.validate_ticker"),
         ("services.get_company_info", "utility_modules.company_info.get_company_info"),
         ("services.get_crypto_info", "utility_modules.crypto_info.get_crypto_info"),
-        ("services.load_prices",
-         "utility_modules.data_loading.load_prices"),
-        ("services.load_crypto_prices",
-         "utility_modules.data_loading.load_crypto_prices"),
-        ("services.compute_indicators",
-         "utility_modules.analysis.compute_indicators"),
+        ("services.load_prices", "utility_modules.data_loading.load_prices"),
+        (
+            "services.load_crypto_prices",
+            "utility_modules.data_loading.load_crypto_prices",
+        ),
+        ("services.compute_indicators", "utility_modules.analysis.compute_indicators"),
         ("services.detect_events", "utility_modules.analysis.detect_events"),
         ("services.forecast_prices", "utility_modules.analysis.forecast_prices"),
         ("services.build_report", "utility_modules.reporting.build_report"),
@@ -359,7 +359,7 @@ def _initialize_compatibility_mappings():
         compatibility_registry.register_compatibility(
             legacy,
             new,
-            migration_guide="See MIGRATION_GUIDE.md for detailed migration instructions"
+            migration_guide="See MIGRATION_GUIDE.md for detailed migration instructions",
         )
 
 

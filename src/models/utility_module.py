@@ -5,14 +5,18 @@ from pydantic import BaseModel, Field, validator
 
 from src.decorators import handle_errors, log_execution, validate_inputs
 from src.exceptions import (
-    ValidationError, FunctionNotFoundError,
-    DependencyError, FilePathError, UtilityModuleError
+    ValidationError,
+    FunctionNotFoundError,
+    DependencyError,
+    FilePathError,
+    UtilityModuleError,
 )
 from src.models.utility_function import UtilityFunction
 
 
 class UtilityModule(BaseModel):
     """Represents a utility module with its functions and metadata."""
+
     name: str = Field(..., description="Name of the utility module")
     description: str = Field(..., description="Purpose and scope of the module")
     file_path: str = Field(
@@ -24,9 +28,7 @@ class UtilityModule(BaseModel):
     dependencies: List[str] = Field(
         default_factory=list, description="External dependencies required by the module"
     )
-    lines_saved: int = Field(
-        0, description="Estimated lines of code saved", ge=0
-    )
+    lines_saved: int = Field(0, description="Estimated lines of code saved", ge=0)
     created_at: datetime = Field(
         default_factory=datetime.utcnow, description="When the module was created"
     )
@@ -34,27 +36,27 @@ class UtilityModule(BaseModel):
         default_factory=datetime.utcnow, description="When the module was last updated"
     )
 
-    @validator('name')
+    @validator("name")
     def validate_name(cls, v):
         if not v:
             raise ValidationError("Module name cannot be empty")
-        if not re.match(r'^[a-z][a-z0-9_]*$', v):
+        if not re.match(r"^[a-z][a-z0-9_]*$", v):
             raise ValidationError("Module name must be in snake_case format")
         return v
 
-    @validator('file_path')
+    @validator("file_path")
     def validate_file_path(cls, v):
-        if not v.endswith('.py'):
+        if not v.endswith(".py"):
             raise FilePathError("File path must end with .py")
-        if not v.startswith('src/'):
+        if not v.startswith("src/"):
             raise FilePathError("File path must start with src/")
-        if not re.match(r'^src/[a-z][a-z0-9_/]*\.py$', v):
+        if not re.match(r"^src/[a-z][a-z0-9_/]*\.py$", v):
             raise FilePathError(
                 "File path must follow pattern: src/[a-z][a-z0-9_/]*.py"
             )
         return v
 
-    @validator('updated_at', always=True)
+    @validator("updated_at", always=True)
     def validate_updated_at(cls, v, values):
         # Ensure updated_at is always set to current time when model is created/updated
         return datetime.utcnow()
@@ -71,7 +73,7 @@ class UtilityModule(BaseModel):
 
     @handle_errors(log_errors=True, reraise_exceptions=UtilityModuleError)
     @log_execution(include_args=False, include_result=False)
-    @validate_inputs(function='utility_function')
+    @validate_inputs(function="utility_function")
     def add_function(self, function: UtilityFunction) -> None:
         """Add a function to the module and update lines_saved."""
         if not function:
@@ -87,7 +89,7 @@ class UtilityModule(BaseModel):
 
     @handle_errors(log_errors=True, reraise_exceptions=UtilityModuleError)
     @log_execution(include_args=False, include_result=False)
-    @validate_inputs(function_name='non_empty_string')
+    @validate_inputs(function_name="non_empty_string")
     def remove_function(self, function_name: str) -> bool:
         """Remove a function by name and update lines_saved."""
         if not any(f.name == function_name for f in self.functions):
@@ -105,7 +107,7 @@ class UtilityModule(BaseModel):
 
     @handle_errors(log_errors=True, reraise_exceptions=UtilityModuleError)
     @log_execution(include_args=False, include_result=False)
-    @validate_inputs(dependency='non_empty_string')
+    @validate_inputs(dependency="non_empty_string")
     def add_dependency(self, dependency: str) -> None:
         """Add a dependency to the module if not already present."""
         if not dependency or not dependency.strip():
@@ -118,7 +120,7 @@ class UtilityModule(BaseModel):
 
     @handle_errors(log_errors=True, reraise_exceptions=UtilityModuleError)
     @log_execution(include_args=False, include_result=False)
-    @validate_inputs(dependency='non_empty_string')
+    @validate_inputs(dependency="non_empty_string")
     def remove_dependency(self, dependency: str) -> bool:
         """Remove a dependency from the module."""
         if not dependency or not dependency.strip():

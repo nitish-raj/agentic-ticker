@@ -7,35 +7,31 @@ class CodeLocation(BaseModel):
 
     file_path: str = Field(..., description="Path to the source file")
     start_line: int = Field(
-        ..., ge=1,
-        description="Starting line number (1-based indexing)"
+        ..., ge=1, description="Starting line number (1-based indexing)"
     )
     end_line: int = Field(
-        ..., ge=1,
-        description="Ending line number (1-based indexing)"
+        ..., ge=1, description="Ending line number (1-based indexing)"
     )
     function_name: Optional[str] = Field(
-        None,
-        description="Name of function containing this code"
+        None, description="Name of function containing this code"
     )
     class_name: Optional[str] = Field(
-        None,
-        description="Name of class containing this code"
+        None, description="Name of class containing this code"
     )
     module_name: str = Field(..., description="Name of the module")
 
-    @validator('end_line')
+    @validator("end_line")
     def validate_line_range(cls, v, values):
         """Validate that end_line is greater than or equal to start_line."""
-        if 'start_line' in values and v < values['start_line']:
-            raise ValueError('end_line must be greater than or equal to start_line')
+        if "start_line" in values and v < values["start_line"]:
+            raise ValueError("end_line must be greater than or equal to start_line")
         return v
 
-    @validator('start_line', 'end_line')
+    @validator("start_line", "end_line")
     def validate_positive_lines(cls, v):
         """Validate that line numbers are positive."""
         if v < 1:
-            raise ValueError('Line numbers must be positive integers')
+            raise ValueError("Line numbers must be positive integers")
         return v
 
     @property
@@ -68,6 +64,7 @@ class CodeLocation(BaseModel):
 
     class Config:
         """Pydantic model configuration."""
+
         use_enum_values = True
         json_schema_extra = {
             "example": {
@@ -76,6 +73,6 @@ class CodeLocation(BaseModel):
                 "end_line": 28,
                 "function_name": "validate_email",
                 "class_name": "EmailValidator",
-                "module_name": "validation"
+                "module_name": "validation",
             }
         }

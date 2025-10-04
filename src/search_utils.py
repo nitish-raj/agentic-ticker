@@ -21,9 +21,15 @@ from pydantic import BaseModel, Field
 
 # Import decorators
 import sys
-import os
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.decorators import handle_errors, log_execution, time_execution, validate_inputs, cache_result, retry_on_failure
+from src.decorators import (
+    handle_errors,
+    log_execution,
+    time_execution,
+    validate_inputs,
+    retry_on_failure,
+)
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -31,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 class SearchResult(BaseModel):
     """Represents a standardized search result."""
+
     title: str = Field(default="", description="Title of the search result")
     href: str = Field(default="", description="URL of the search result")
     content: str = Field(
@@ -44,19 +51,17 @@ class SearchResult(BaseModel):
 
 class SearchConfig(BaseModel):
     """Configuration for search operations."""
+
     max_results: int = Field(
-        default=5, ge=1, le=20,
-        description="Maximum number of results to return"
+        default=5, ge=1, le=20, description="Maximum number of results to return"
     )
     timeout: int = Field(
-        default=30, ge=5, le=120,
-        description="Timeout in seconds for search operations"
+        default=30, ge=5, le=120, description="Timeout in seconds for search operations"
     )
     region: str = Field(default="us-en", description="Search region")
     safesearch: str = Field(default="moderate", description="Safe search level")
     retry_count: int = Field(
-        default=2, ge=0, le=5,
-        description="Number of retry attempts on failure"
+        default=2, ge=0, le=5, description="Number of retry attempts on failure"
     )
     enable_fallback: bool = Field(
         default=True, description="Enable fallback search methods"
@@ -65,6 +70,7 @@ class SearchConfig(BaseModel):
 
 class SearchError(Exception):
     """Custom exception for search-related errors."""
+
     pass
 
 
@@ -78,17 +84,12 @@ class SearchUtils:
 
     def _setup_gemini_config(self) -> None:
         """Setup Gemini API configuration from config.yaml."""
-        try:
-            from .config import get_config
-            config = get_config()
-            self.gemini_api_key = config.gemini.api_key
-            self.gemini_model = config.gemini.model
-            self.gemini_api_base = config.gemini.api_base
-        except ImportError:
-            # Fallback if config not available
-            self.gemini_api_key = ""
-            self.gemini_model = "gemini-2.0-flash"
-            self.gemini_api_base = "https://generativelanguage.googleapis.com/v1beta"
+        from .config import get_config
+
+        config = get_config()
+        self.gemini_api_key = config.gemini.api_key
+        self.gemini_model = config.gemini.model
+        self.gemini_api_base = config.gemini.api_base
 
         if not self.gemini_api_key:
             logger.warning("Gemini API key not found in configuration")
@@ -96,8 +97,10 @@ class SearchUtils:
     @handle_errors(default_return=[], log_errors=True)
     @log_execution(include_args=False, include_result=False)
     @time_execution(log_threshold=5.0)
-    @validate_inputs(query='non_empty_string')
-    @retry_on_failure(max_attempts=3, delay=1.0, exceptions=(SearchError, requests.RequestException))
+    @validate_inputs(query="non_empty_string")
+    @retry_on_failure(
+        max_attempts=3, delay=1.0, exceptions=(SearchError, requests.RequestException)
+    )
     def web_search(
         self, query: str, config: Optional[SearchConfig] = None
     ) -> List[SearchResult]:
@@ -122,11 +125,12 @@ class SearchUtils:
             # Sanitize error message to prevent API key exposure
             try:
                 from .sanitization import sanitize_error_message
+
                 sanitized_error = sanitize_error_message(e)
                 logger.error(f"DDGS search failed: {sanitized_error}")
             except ImportError:
                 logger.error("DDGS search failed: [SANITIZATION_ERROR]")
-            
+
             if search_config.enable_fallback:
                 return self._fallback_search(query, search_config)
             raise SearchError("Web search failed: [ERROR_DETAILS_REDACTED]")
@@ -144,17 +148,17 @@ class SearchUtils:
                 query,
                 region=config.region,
                 safesearch=config.safesearch,
-                max_results=config.max_results
+                max_results=config.max_results,
             )
 
             # Convert DDGS results to standardized format
             formatted_results = []
             for result in results:
                 search_result = SearchResult(
-                    title=result.get('title', ''),
-                    href=result.get('href', ''),
-                    content=result.get('body', ''),
-                    source='ddgs'
+                    title=result.get("title", ""),
+                    href=result.get("href", ""),
+                    content=result.get("body", ""),
+                    source="ddgs",
                 )
                 formatted_results.append(search_result)
 
@@ -162,7 +166,7 @@ class SearchUtils:
                 f"Web search returned {len(formatted_results)} results "
                 f"for query: {query}"
             )
-            return formatted_results[:config.max_results]
+            return formatted_results[: config.max_results]
 
         except ImportError:
             raise SearchError(
@@ -172,6 +176,7 @@ class SearchUtils:
             # Sanitize error message to prevent API key exposure
             try:
                 from .sanitization import sanitize_error_message
+
                 sanitized_error = sanitize_error_message(e)
                 raise SearchError(f"DDGS search error: {sanitized_error}")
             except ImportError:
@@ -225,11 +230,11 @@ class SearchUtils:
         cleaned = text.strip()
 
         # Remove extra whitespace
-        cleaned = re.sub(r'\s+', ' ', cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned)
 
         # Remove special characters if requested
         if remove_special_chars:
-            cleaned = re.sub(r'[^\w\s\-.,;:!?]', '', cleaned)
+            cleaned = re.sub(r"[^\w\s\-.,;:!?]", "", cleaned)
 
         return cleaned
 
@@ -282,15 +287,16 @@ class SearchUtils:
         # Sanitize URL for any potential logging/debug output
         try:
             from .sanitization import sanitize_url
-            sanitized_url = sanitize_url(url)
+
+            sanitize_url(url)
         except ImportError:
-            sanitized_url = url
+            pass
         body = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {
                 "temperature": temperature,
-                "responseMimeType": "text/plain"
-            }
+                "responseMimeType": "text/plain",
+            },
         }
 
         try:
@@ -305,7 +311,9 @@ class SearchUtils:
             return text
 
         except requests.exceptions.Timeout as e:
-            raise SearchError(f"Gemini API request timed out after {actual_timeout} seconds: {e}")
+            raise SearchError(
+                f"Gemini API request timed out after {actual_timeout} seconds: {e}"
+            )
         except requests.RequestException as e:
             raise SearchError(f"Gemini API request failed: {e}")
         except (KeyError, IndexError) as e:
@@ -344,10 +352,10 @@ class SearchUtils:
             ticker = self.gemini_api_call(prompt)
 
             # Clean up ticker (remove spaces, but keep hyphens for tickers like BRK-A)
-            ticker = re.sub(r'[^A-Z0-9-]', '', ticker.upper())
+            ticker = re.sub(r"[^A-Z0-9-]", "", ticker.upper())
 
             # Validate ticker format
-            if re.match(r'^[A-Z0-9]{1,5}(-[A-Z0-9]{1,2})?$', ticker):
+            if re.match(r"^[A-Z0-9]{1,5}(-[A-Z0-9]{1,2})?$", ticker):
                 return ticker
 
             return ""
@@ -356,10 +364,15 @@ class SearchUtils:
             # Sanitize error message to prevent sensitive data exposure
             try:
                 from .sanitization import sanitize_error_message
+
                 sanitized_error = sanitize_error_message(e)
-                logger.error(f"Failed to parse ticker from search results: {sanitized_error}")
+                logger.error(
+                    f"Failed to parse ticker from search results: {sanitized_error}"
+                )
             except ImportError:
-                logger.error("Failed to parse ticker from search results: [SANITIZATION_ERROR]")
+                logger.error(
+                    "Failed to parse ticker from search results: [SANITIZATION_ERROR]"
+                )
             return ""
 
     def parse_crypto_ticker_from_search(
@@ -395,7 +408,7 @@ class SearchUtils:
             ticker = self.gemini_api_call(prompt)
 
             # Clean up ticker (remove spaces, special characters except alphanumeric)
-            ticker = re.sub(r'[^A-Z0-9]', '', ticker.upper())
+            ticker = re.sub(r"[^A-Z0-9]", "", ticker.upper())
 
             return ticker
 
@@ -437,7 +450,7 @@ class SearchUtils:
             coin_id = self.gemini_api_call(prompt)
 
             # Clean up coin ID (remove spaces, special characters except hyphens)
-            coin_id = re.sub(r'[^a-z0-9-]', '', coin_id.lower())
+            coin_id = re.sub(r"[^a-z0-9-]", "", coin_id.lower())
 
             return coin_id
 
@@ -520,13 +533,12 @@ class SearchUtils:
         cleaned = ticker.strip().upper()
 
         # Remove special characters except hyphens
-        cleaned = re.sub(r'[^A-Z0-9-]', '', cleaned)
+        cleaned = re.sub(r"[^A-Z0-9-]", "", cleaned)
 
         return cleaned
 
     def search_with_retry(
-        self, query: str, query_type: str = "general",
-        max_retries: Optional[int] = None
+        self, query: str, query_type: str = "general", max_retries: Optional[int] = None
     ) -> List[SearchResult]:
         """
         Perform search with retry logic.
@@ -569,7 +581,7 @@ class SearchUtils:
         return {
             "config": self.config.dict(),
             "gemini_configured": bool(self.gemini_api_key),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
 
@@ -593,11 +605,7 @@ def ddgs_search(query: str, max_results: int = 3, **kwargs) -> List[Dict[str, An
         results = search_utils.web_search(query)
         # Convert to legacy format
         return [
-            {
-                'title': result.title,
-                'href': result.href,
-                'content': result.content
-            }
+            {"title": result.title, "href": result.href, "content": result.content}
             for result in results
         ]
     except Exception as e:

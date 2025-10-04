@@ -5,14 +5,18 @@ from pydantic import BaseModel, Field, validator
 
 from src.decorators import handle_errors, log_execution
 from src.exceptions import (
-    ValidationError, PatternDetectionError, AnalysisError,
-    SimilarityError, CodeDuplicationError
+    ValidationError,
+    PatternDetectionError,
+    AnalysisError,
+    SimilarityError,
+    CodeDuplicationError,
 )
 from src.models.code_location import CodeLocation
 
 
 class PatternType(str, Enum):
     """Types of code duplication patterns."""
+
     IDENTICAL_CODE = "identical_code"
     SIMILAR_STRUCTURE = "similar_structure"
     REPEATED_LOGIC = "repeated_logic"
@@ -22,6 +26,7 @@ class PatternType(str, Enum):
 
 class SeverityLevel(str, Enum):
     """Severity levels for code duplication patterns."""
+
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -30,6 +35,7 @@ class SeverityLevel(str, Enum):
 
 class PatternStatus(str, Enum):
     """Status of code duplication pattern handling."""
+
     DETECTED = "detected"
     ANALYZED = "analyzed"
     REFACTORED = "refactored"
@@ -47,41 +53,36 @@ class CodeDuplicationPattern(BaseModel):
         ..., description="Severity level of the duplication"
     )
     locations: List[CodeLocation] = Field(
-        ...,
-        description="List of locations where the duplication occurs (minimum 2)"
+        ..., description="List of locations where the duplication occurs (minimum 2)"
     )
     lines_affected: int = Field(
-        ..., ge=1,
-        description="Number of lines affected by the duplication"
+        ..., ge=1, description="Number of lines affected by the duplication"
     )
     suggested_refactoring: str = Field(
         ..., description="Suggested refactoring approach"
     )
     estimated_savings: int = Field(
-        ..., ge=0,
-        description="Estimated lines of code that could be saved"
+        ..., ge=0, description="Estimated lines of code that could be saved"
     )
     detection_date: datetime = Field(
-        default_factory=datetime.now,
-        description="When the pattern was detected"
+        default_factory=datetime.now, description="When the pattern was detected"
     )
     status: PatternStatus = Field(
-        default=PatternStatus.DETECTED,
-        description="Current status of the pattern"
+        default=PatternStatus.DETECTED, description="Current status of the pattern"
     )
 
-    @validator('locations')
+    @validator("locations")
     def validate_locations(cls, v):
         if len(v) < 2:
             raise PatternDetectionError(
-                'At least 2 locations are required for a duplication pattern'
+                "At least 2 locations are required for a duplication pattern"
             )
         return v
 
-    @validator('estimated_savings')
+    @validator("estimated_savings")
     def validate_savings(cls, v, values):
-        if 'lines_affected' in values and v > values['lines_affected']:
-            raise AnalysisError('estimated_savings cannot exceed lines_affected')
+        if "lines_affected" in values and v > values["lines_affected"]:
+            raise AnalysisError("estimated_savings cannot exceed lines_affected")
         return v
 
     @handle_errors(log_errors=True, reraise_exceptions=CodeDuplicationError)
@@ -90,9 +91,11 @@ class CodeDuplicationPattern(BaseModel):
         """Add a location where the duplication pattern occurs."""
         if not location:
             raise PatternDetectionError("Location cannot be None or empty")
-        if any(loc.file_path == location.file_path and
-               loc.start_line == location.start_line
-               for loc in self.locations):
+        if any(
+            loc.file_path == location.file_path
+            and loc.start_line == location.start_line
+            for loc in self.locations
+        ):
             raise PatternDetectionError("Location already exists in pattern")
 
         self.locations.append(location)
@@ -137,7 +140,7 @@ class CodeDuplicationPattern(BaseModel):
             SeverityLevel.LOW: 1,
             SeverityLevel.MEDIUM: 2,
             SeverityLevel.HIGH: 3,
-            SeverityLevel.CRITICAL: 4
+            SeverityLevel.CRITICAL: 4,
         }
 
         base_priority = severity_weights.get(self.severity, 1)
@@ -147,10 +150,9 @@ class CodeDuplicationPattern(BaseModel):
 
     class Config:
         """Pydantic model configuration."""
+
         use_enum_values = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        json_encoders = {datetime: lambda v: v.isoformat()}
         json_schema_extra = {
             "example": {
                 "id": "dup_001",
@@ -163,7 +165,7 @@ class CodeDuplicationPattern(BaseModel):
                         "end_line": 25,
                         "function_name": "validate_input",
                         "class_name": None,
-                        "module_name": "utils"
+                        "module_name": "utils",
                     },
                     {
                         "file_path": "src/helpers.py",
@@ -171,14 +173,14 @@ class CodeDuplicationPattern(BaseModel):
                         "end_line": 45,
                         "function_name": "check_data",
                         "class_name": None,
-                        "module_name": "helpers"
-                    }
+                        "module_name": "helpers",
+                    },
                 ],
                 "lines_affected": 16,
                 "suggested_refactoring": "Extract common validation logic into a "
-                                         "shared utility function",
+                "shared utility function",
                 "estimated_savings": 12,
                 "detection_date": "2025-09-27T10:30:00",
-                "status": "detected"
+                "status": "detected",
             }
         }

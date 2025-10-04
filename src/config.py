@@ -18,6 +18,7 @@ from enum import Enum
 
 class LogLevel(str, Enum):
     """Log level enumeration."""
+
     DEBUG = "DEBUG"
     INFO = "INFO"
     WARNING = "WARNING"
@@ -27,6 +28,7 @@ class LogLevel(str, Enum):
 
 class AssetType(str, Enum):
     """Asset type enumeration."""
+
     STOCK = "stock"
     CRYPTO = "crypto"
     AMBIGUOUS = "ambiguous"
@@ -35,6 +37,7 @@ class AssetType(str, Enum):
 @dataclass
 class GeminiConfig:
     """Gemini API configuration."""
+
     api_key: str = ""
     model: str = "gemini-2.5-flash-lite"
     api_base: str = "https://generativelanguage.googleapis.com/v1beta"
@@ -42,23 +45,21 @@ class GeminiConfig:
     max_tokens: int = 8192
     timeout: int = 120
 
-    
-
 
 @dataclass
 class CoinGeckoConfig:
     """CoinGecko API configuration."""
+
     demo_api_key: str = ""
     pro_api_key: str = ""
     environment: str = "demo"
     timeout: int = 30
 
-    
-
 
 @dataclass
 class YahooFinanceConfig:
     """Yahoo Finance configuration."""
+
     timeout: int = 30
     retry_attempts: int = 3
     retry_delay: float = 1.0
@@ -67,6 +68,7 @@ class YahooFinanceConfig:
 @dataclass
 class DDGConfig:
     """DuckDuckGo Search configuration."""
+
     max_results: int = 3
     region: str = "us-en"
     safesearch: str = "moderate"
@@ -76,6 +78,7 @@ class DDGConfig:
 @dataclass
 class AnalysisConfig:
     """Analysis parameters configuration."""
+
     default_days: int = 30
     default_threshold: float = 2.0
     default_forecast_days: int = 5
@@ -89,18 +92,18 @@ class AnalysisConfig:
 @dataclass
 class LoggingConfig:
     """Logging configuration."""
+
     level: LogLevel = LogLevel.INFO
     format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     file_path: Optional[str] = None
     max_file_size: int = 10485760  # 10MB
     backup_count: int = 5
 
-    
-
 
 @dataclass
 class FeatureFlags:
     """Feature flags configuration."""
+
     enable_web_search: bool = True
     enable_crypto_analysis: bool = True
     enable_stock_analysis: bool = True
@@ -112,12 +115,11 @@ class FeatureFlags:
     enable_error_handling: bool = True
     enable_validation: bool = True
 
-    
-
 
 @dataclass
 class UIConfig:
     """User interface configuration."""
+
     page_title: str = "Agentic-Ticker (Gemini)"
     page_icon: str = "📈"
     layout: str = "wide"
@@ -129,18 +131,21 @@ class UIConfig:
 @dataclass
 class CORSConfig:
     """CORS configuration for FastAPI backend."""
-    allowed_origins: List[str] = field(default_factory=lambda: [
-        "http://localhost:8501",  # Default Streamlit local port
-        "http://localhost:3000",  # Common development port
-        "http://127.0.0.1:8501",  # Alternative localhost
-        "http://127.0.0.1:3000",  # Alternative localhost
-    ])
-    allowed_methods: List[str] = field(default_factory=lambda: [
-        "GET", "POST", "PUT", "DELETE", "OPTIONS"
-    ])
-    allowed_headers: List[str] = field(default_factory=lambda: [
-        "Content-Type", "Authorization", "X-Requested-With"
-    ])
+
+    allowed_origins: List[str] = field(
+        default_factory=lambda: [
+            "http://localhost:8501",  # Default Streamlit local port
+            "http://localhost:3000",  # Common development port
+            "http://127.0.0.1:8501",  # Alternative localhost
+            "http://127.0.0.1:3000",  # Alternative localhost
+        ]
+    )
+    allowed_methods: List[str] = field(
+        default_factory=lambda: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    )
+    allowed_headers: List[str] = field(
+        default_factory=lambda: ["Content-Type", "Authorization", "X-Requested-With"]
+    )
     allow_credentials: bool = True
     max_age: int = 600  # 10 minutes
     strict_origins: bool = True  # Enforce strict origin validation
@@ -149,33 +154,34 @@ class CORSConfig:
 @dataclass
 class SecurityConfig:
     """Security configuration for network and application security."""
+
     # HTTPS/TLS settings
     https_enabled: bool = True
     tls_version: str = "TLSv1.3"
     verify_certificates: bool = True
     certificate_bundle_path: Optional[str] = None
-    
+
     # Rate limiting
     rate_limit_enabled: bool = True
     requests_per_minute: int = 60
     requests_per_hour: int = 1000
     burst_size: int = 10
-    
+
     # Request limits
     max_request_size_mb: int = 10
     max_response_size_mb: int = 50
-    
+
     # IP filtering
     whitelist_ips: List[str] = field(default_factory=list)
     blacklist_ips: List[str] = field(default_factory=list)
-    
+
     # Security headers
     security_headers_enabled: bool = True
     hsts_enabled: bool = True
     hsts_max_age: int = 31536000  # 1 year
     hsts_include_subdomains: bool = True
     hsts_preload: bool = True
-    
+
     # Content Security Policy
     csp_enabled: bool = True
     csp_policy: str = (
@@ -189,38 +195,41 @@ class SecurityConfig:
         "base-uri 'self'; "
         "form-action 'self'"
     )
-    
+
     # Input validation
     input_validation_enabled: bool = True
     max_url_length: int = 2048
     max_header_length: int = 8192
-    
+
     # Network security
     connection_timeout: int = 30
     read_timeout: int = 60
     max_retries: int = 3
     retry_delay: float = 1.0
-    
+
     # DNS security
     dns_over_https: bool = False
     dnssec_enabled: bool = True
-    trusted_dns_servers: List[str] = field(default_factory=lambda: [
-        "8.8.8.8", "8.8.4.4",  # Google
-        "1.1.1.1", "1.0.0.1"   # Cloudflare
-    ])
-    
+    trusted_dns_servers: List[str] = field(
+        default_factory=lambda: [
+            "8.8.8.8",
+            "8.8.4.4",  # Google
+            "1.1.1.1",
+            "1.0.0.1",  # Cloudflare
+        ]
+    )
+
     # Monitoring and logging
     security_logging_enabled: bool = True
     log_failed_requests: bool = True
     log_blocked_ips: bool = True
     log_rate_limits: bool = True
 
-    
-
 
 @dataclass
 class AppConfig:
     """Main application configuration."""
+
     gemini: GeminiConfig = field(default_factory=GeminiConfig)
     coingecko: CoinGeckoConfig = field(default_factory=CoinGeckoConfig)
     yahoo_finance: YahooFinanceConfig = field(default_factory=YahooFinanceConfig)
@@ -264,9 +273,10 @@ class AppConfig:
             return
 
         try:
-            with open(path, 'r') as f:
-                if path.suffix.lower() in ['.yaml', '.yml']:
+            with open(path, "r") as f:
+                if path.suffix.lower() in [".yaml", ".yml"]:
                     import yaml
+
                     data = yaml.safe_load(f)
                 else:
                     data = json.load(f)
@@ -275,10 +285,10 @@ class AppConfig:
 
         except ImportError:
             # YAML not available, try JSON
-            if path.suffix.lower() in ['.yaml', '.yml']:
+            if path.suffix.lower() in [".yaml", ".yml"]:
                 return
             try:
-                with open(path, 'r') as f:
+                with open(path, "r") as f:
                     data = json.load(f)
                 self.update_from_dict(data)
             except Exception as e:
@@ -311,10 +321,21 @@ class AppConfig:
 
         # Update top-level configuration
         for key, value in data.items():
-            if key not in [s[0] for s in [
-                ("gemini",), ("coingecko",), ("yahoo_finance",), ("ddg",),
-                ("analysis",), ("logging",), ("feature_flags",), ("ui",), ("cors",), ("security",),
-            ]] and hasattr(self, key):
+            if key not in [
+                s[0]
+                for s in [
+                    ("gemini",),
+                    ("coingecko",),
+                    ("yahoo_finance",),
+                    ("ddg",),
+                    ("analysis",),
+                    ("logging",),
+                    ("feature_flags",),
+                    ("ui",),
+                    ("cors",),
+                    ("security",),
+                ]
+            ] and hasattr(self, key):
                 setattr(self, key, value)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -327,18 +348,19 @@ class AppConfig:
         data = self.to_dict()
 
         try:
-            with open(path, 'w') as f:
-                if path.suffix.lower() in ['.yaml', '.yml']:
+            with open(path, "w") as f:
+                if path.suffix.lower() in [".yaml", ".yml"]:
                     import yaml
+
                     yaml.dump(data, f, default_flow_style=False)
                 else:
                     json.dump(data, f, indent=2)
         except ImportError:
             # YAML not available, use JSON
-            if path.suffix.lower() in ['.yaml', '.yml']:
+            if path.suffix.lower() in [".yaml", ".yml"]:
                 return
             try:
-                with open(path, 'w') as f:
+                with open(path, "w") as f:
                     json.dump(data, f, indent=2)
             except Exception as e:
                 logging.error(f"Failed to save config to {file_path}: {e}")
@@ -356,7 +378,9 @@ class AppConfig:
 
         # Determine if we're in demo/live mode based on available API keys
         has_gemini_key = bool(self.gemini.api_key)
-        has_coingecko_key = bool(self.coingecko.demo_api_key or self.coingecko.pro_api_key)
+        has_coingecko_key = bool(
+            self.coingecko.demo_api_key or self.coingecko.pro_api_key
+        )
         live_mode = has_gemini_key or has_coingecko_key
 
         # Validate Gemini configuration
@@ -550,16 +574,21 @@ class AppConfig:
     def _is_valid_url(self, url: str) -> bool:
         """Check if a URL is valid."""
         import re
+
         url_pattern = re.compile(
-            r'^https?://'  # http:// or https://
-            r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain...
-            r'localhost|'  # localhost...
-            r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
-            r'(?::\d+)?'  # optional port
-            r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+            r"^https?://"  # http:// or https://
+            r"(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|"  # domain...
+            r"localhost|"  # localhost...
+            r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"  # ...or ip
+            r"(?::\d+)?"  # optional port
+            r"(?:/?|[/?]\S+)$",
+            re.IGNORECASE,
+        )
         return url_pattern.match(url) is not None
 
-    def validate_runtime_change(self, section: str, key: str, value: Any) -> tuple[bool, str]:
+    def validate_runtime_change(
+        self, section: str, key: str, value: Any
+    ) -> tuple[bool, str]:
         """Validate a runtime configuration change."""
         try:
             # Validate based on section and key
@@ -579,8 +608,13 @@ class AppConfig:
 
             elif section == "analysis":
                 if key in [
-                    "default_days", "default_forecast_days", "max_analysis_steps",
-                    "min_data_points", "volatility_window", "ma5_window", "ma10_window"
+                    "default_days",
+                    "default_forecast_days",
+                    "max_analysis_steps",
+                    "min_data_points",
+                    "volatility_window",
+                    "ma5_window",
+                    "ma10_window",
                 ]:
                     if int(value) <= 0:
                         return False, f"{key} must be positive"
@@ -606,9 +640,17 @@ class AppConfig:
                     return False, "CORS allowed_methods cannot be empty"
 
             elif section == "security":
-                if key in ["requests_per_minute", "requests_per_hour", "burst_size", 
-                          "max_request_size_mb", "max_response_size_mb", 
-                          "connection_timeout", "read_timeout", "max_url_length", "max_header_length"]:
+                if key in [
+                    "requests_per_minute",
+                    "requests_per_hour",
+                    "burst_size",
+                    "max_request_size_mb",
+                    "max_response_size_mb",
+                    "connection_timeout",
+                    "read_timeout",
+                    "max_url_length",
+                    "max_header_length",
+                ]:
                     if int(value) <= 0:
                         return False, f"Security {key} must be positive"
                 elif key in ["max_retries", "retry_delay"]:
@@ -617,7 +659,10 @@ class AppConfig:
                 elif key == "tls_version":
                     valid_versions = ["TLSv1.2", "TLSv1.3"]
                     if value not in valid_versions:
-                        return False, f"Security tls_version must be one of: {valid_versions}"
+                        return (
+                            False,
+                            f"Security tls_version must be one of: {valid_versions}",
+                        )
 
             return True, "Valid"
         except (ValueError, TypeError) as e:
@@ -626,7 +671,9 @@ class AppConfig:
     def get_mode_info(self) -> Dict[str, Any]:
         """Get information about current mode and available features."""
         has_gemini_key = bool(self.gemini.api_key)
-        has_coingecko_key = bool(self.coingecko.demo_api_key or self.coingecko.pro_api_key)
+        has_coingecko_key = bool(
+            self.coingecko.demo_api_key or self.coingecko.pro_api_key
+        )
 
         mode = "demo"
         if has_gemini_key and has_coingecko_key:
@@ -638,7 +685,9 @@ class AppConfig:
         limited_features = []
 
         if has_gemini_key:
-            available_features.extend(["AI Analysis", "Forecasting", "Smart Validation"])
+            available_features.extend(
+                ["AI Analysis", "Forecasting", "Smart Validation"]
+            )
         else:
             limited_features.append("AI Analysis (mock data)")
             limited_features.append("Forecasting (mock data)")
@@ -656,7 +705,7 @@ class AppConfig:
             "has_coingecko_key": has_coingecko_key,
             "available_features": available_features,
             "limited_features": limited_features,
-            "enable_validation": self.feature_flags.enable_validation
+            "enable_validation": self.feature_flags.enable_validation,
         }
 
     def get_env_vars(self) -> Dict[str, str]:
@@ -681,7 +730,7 @@ class AppConfig:
         if self.logging.level:
             level_value = (
                 self.logging.level.value
-                if hasattr(self.logging.level, 'value')
+                if hasattr(self.logging.level, "value")
                 else self.logging.level
             )
             env_vars["LOG_LEVEL"] = level_value
@@ -757,7 +806,9 @@ def load_config(config_file_path: Optional[str] = None) -> AppConfig:
         # Add helpful guidance
         error_msg += "\n\nTo fix configuration issues:"
         error_msg += "\n1. Update config.yaml with required settings"
-        error_msg += "\n2. Run in demo mode by omitting API keys for limited functionality"
+        error_msg += (
+            "\n2. Run in demo mode by omitting API keys for limited functionality"
+        )
 
         if config.feature_flags.enable_error_handling:
             logging.error(error_msg)
@@ -776,11 +827,9 @@ def setup_logging(config: Optional[LoggingConfig] = None) -> None:
         config = get_config().logging
 
     # Configure root logger - handle both enum and string values
-    level_value = config.level.value if hasattr(config.level, 'value') else config.level
+    level_value = config.level.value if hasattr(config.level, "value") else config.level
     logging.basicConfig(
-        level=getattr(logging, level_value.upper()),
-        format=config.format,
-        force=True
+        level=getattr(logging, level_value.upper()), format=config.format, force=True
     )
 
     # Add file handler if file path is specified
@@ -790,12 +839,14 @@ def setup_logging(config: Optional[LoggingConfig] = None) -> None:
         file_handler = RotatingFileHandler(
             config.file_path,
             maxBytes=config.max_file_size,
-            backupCount=config.backup_count
+            backupCount=config.backup_count,
         )
         file_handler.setFormatter(logging.Formatter(config.format))
 
         # Handle both enum and string values for file handler level
-        level_value = config.level.value if hasattr(config.level, 'value') else config.level
+        level_value = (
+            config.level.value if hasattr(config.level, "value") else config.level
+        )
         file_handler.setLevel(getattr(logging, level_value.upper()))
 
         # Add handler to root logger

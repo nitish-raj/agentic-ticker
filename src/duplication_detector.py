@@ -241,6 +241,8 @@ class DuplicationDetector:
         base_path = Path(candidate_scope)
 
         for pattern in file_patterns:
+            # Validate the file pattern for safety
+            self._validate_file_pattern(pattern)
             # Handle glob patterns
             if '**' in pattern:
                 # Recursive search
@@ -248,7 +250,7 @@ class DuplicationDetector:
             else:
                 # Non-recursive search
                 matched_files = base_path.glob(pattern)
-            
+
             for file_path in matched_files:
                 if file_path.is_file():
                     file_real_path = os.path.realpath(str(file_path))
@@ -265,6 +267,23 @@ class DuplicationDetector:
                         continue
                     
                     files.append(file_real_path)
+        
+    def _validate_file_pattern(self, pattern: str) -> None:
+        """
+        Validate that the given file pattern does not allow directory traversal, 
+        is not absolute, and does not start with a path separator.
+        Only allows patterns relative to the provided analysis directory.
+        """
+        # Disallow absolute file patterns
+        if os.path.isabs(pattern):
+            raise ValueError(f"File pattern must not be absolute (got: {pattern!r})")
+        # Disallow use of parent directory traversal
+        parts = Path(pattern).parts
+        if '..' in parts:
+            raise ValueError(f"File pattern must not contain parent directory traversal '..' (got: {pattern!r})")
+        # Disallow starting with a path separator
+        if pattern.startswith(os.sep) or pattern.startswith('/'):
+            raise ValueError(f"File pattern must not start with a path separator (got: {pattern!r})")
         
     def _is_within_safe_root(self, path: str, safe_root: str) -> bool:
         """Return True if the given path is within the safe_root directory."""
